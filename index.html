@@ -182,7 +182,7 @@ const EMOJIS={
 function fmt(v){return new Intl.NumberFormat('pt-BR',{style:'currency',currency:'BRL'}).format(v)}
 function fmtShort(v){
   const abs=Math.abs(v);
-  if(abs>=1000)return (v<0?'-':'')+'R$'++(abs/1000).toFixed(1)+'k';
+  if(abs>=1000)return (v<0?'-':'')+'R$'+(abs/1000).toFixed(1)+'k';
   return fmt(v);
 }
 
