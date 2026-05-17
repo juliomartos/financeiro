@@ -3,7 +3,13 @@
 <head>
 <meta charset="UTF-8"/>
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0"/>
+<meta name="theme-color" content="#0d0d0d"/>
+<meta name="mobile-web-app-capable" content="yes"/>
+<meta name="apple-mobile-web-app-capable" content="yes"/>
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent"/>
+<meta name="apple-mobile-web-app-title" content="Financeiro"/>
 <title>Controle Financeiro</title>
+<link id="pwa-manifest" rel="manifest"/>
 <link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=Syne:wght@400;600;700;800&display=swap" rel="stylesheet"/>
 <style>
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
@@ -125,16 +131,85 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:var(--f
 .inst-toggle{display:flex;align-items:center;gap:10px;margin-bottom:14px;cursor:pointer;user-select:none}
 .inst-toggle input[type=checkbox]{width:18px;height:18px;accent-color:var(--accent);cursor:pointer;flex-shrink:0}
 .inst-toggle span{font-size:13px;color:var(--muted);font-weight:600}
+/* PWA install banner */
+.pwa-banner{display:flex;align-items:center;gap:12px;margin:0 20px 16px;padding:12px 14px;background:var(--surface);border:1px solid var(--accent);border-radius:var(--r);animation:fadein .4s ease}
+@keyframes fadein{from{opacity:0;transform:translateY(-6px)}to{opacity:1;transform:translateY(0)}}
+.pwa-banner-txt{flex:1;font-size:13px;line-height:1.4}
+.pwa-banner-title{font-weight:700;color:var(--text);margin-bottom:2px}
+.pwa-banner-sub{font-size:11px;color:var(--muted)}
+.pwa-install-btn{background:var(--accent);border:none;color:#000;font-family:var(--fd);font-size:12px;font-weight:700;padding:8px 14px;border-radius:var(--rs);cursor:pointer;white-space:nowrap;flex-shrink:0}
+.pwa-dismiss{background:none;border:none;color:var(--dim);font-size:18px;cursor:pointer;padding:0;line-height:1;flex-shrink:0}
 </style>
 </head>
 <body>
 <div id="root"></div>
+
+<!-- PWA: inject manifest inline as blob URL -->
+<script>
+(function(){
+  var manifest = {
+    name: 'Controle Financeiro',
+    short_name: 'Financeiro',
+    description: 'Controle suas finan\u00e7as pessoais',
+    start_url: './',
+    display: 'standalone',
+    background_color: '#0d0d0d',
+    theme_color: '#0d0d0d',
+    orientation: 'portrait',
+    icons: [
+      {src: 'data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 192 192"><rect width="192" height="192" rx="32" fill="%230d0d0d"/><text x="96" y="130" font-size="110" text-anchor="middle">💰</text></svg>', sizes:'192x192', type:'image/svg+xml'},
+      {src: 'data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><rect width="512" height="512" rx="80" fill="%230d0d0d"/><text x="256" y="360" font-size="300" text-anchor="middle">💰</text></svg>', sizes:'512x512', type:'image/svg+xml', purpose:'any maskable'}
+    ]
+  };
+  var blob = new Blob([JSON.stringify(manifest)], {type:'application/manifest+json'});
+  document.getElementById('pwa-manifest').href = URL.createObjectURL(blob);
+
+  /* Service worker — cache-first for offline use */
+  if ('serviceWorker' in navigator) {
+    var swCode = [
+      "var CACHE='fin-v1';",
+      "var URLS=['/'];",
+      "self.addEventListener('install',function(e){",
+      "  e.waitUntil(caches.open(CACHE).then(function(c){return c.addAll(URLS);}));",
+      "  self.skipWaiting();",
+      "});",
+      "self.addEventListener('activate',function(e){",
+      "  e.waitUntil(caches.keys().then(function(keys){",
+      "    return Promise.all(keys.filter(function(k){return k!==CACHE;}).map(function(k){return caches.delete(k);}));",
+      "  }));",
+      "  self.clients.claim();",
+      "});",
+      "self.addEventListener('fetch',function(e){",
+      "  if(e.request.method!=='GET')return;",
+      "  e.respondWith(caches.match(e.request).then(function(cached){",
+      "    var fresh=fetch(e.request).then(function(r){",
+      "      if(r&&r.status===200){var c=r.clone();caches.open(CACHE).then(function(ca){ca.put(e.request,c);});}",
+      "      return r;",
+      "    });",
+      "    return cached||fresh;",
+      "  }));",
+      "});"
+    ].join('\n');
+    var swBlob = new Blob([swCode], {type:'text/javascript'});
+    var swUrl  = URL.createObjectURL(swBlob);
+    navigator.serviceWorker.register(swUrl).catch(function(){});
+  }
+})();
+</script>
+
 <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
 <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
 <script>
 'use strict';
-const {useState, useCallback, useRef} = React;
+const {useState, useCallback, useRef, useEffect} = React;
 const E = React.createElement;
+
+/* capture the beforeinstallprompt event globally */
+var _pwaPrompt = null;
+window.addEventListener('beforeinstallprompt', function(ev) {
+  ev.preventDefault();
+  _pwaPrompt = ev;
+});
 
 const PIN_KEY  = 'fin_pin';
 const SES_KEY  = 'fin_ses';
@@ -734,6 +809,19 @@ function HistoryTab(props) {
   );
 }
 
+/* PWA Install Banner */
+function PwaBanner(props) {
+  return E('div', {className:'pwa-banner'},
+    E('div', null, '\uD83D\uDCF1'),
+    E('div', {className:'pwa-banner-txt'},
+      E('div', {className:'pwa-banner-title'}, 'Instalar o app'),
+      E('div', {className:'pwa-banner-sub'}, 'Acesse direto da tela inicial, sem navegador')
+    ),
+    E('button', {className:'pwa-install-btn', onClick:props.onInstall}, 'Instalar'),
+    E('button', {className:'pwa-dismiss', onClick:props.onDismiss, title:'Fechar'}, '\u00d7')
+  );
+}
+
 function MainApp() {
   var txsS    = useLS('fin_txs',   []); var txs    = txsS[0]; var setTxs    = txsS[1];
   var goalsS  = useLS('fin_goals', []); var goals  = goalsS[0]; var setGoals  = goalsS[1];
@@ -741,6 +829,34 @@ function MainApp() {
   var tabS    = useState('home');       var tab    = tabS[0]; var setTab    = tabS[1];
   var addS    = useState(false);        var addMod = addS[0]; var setAddMod = addS[1];
   var toastS  = useState({msg:'',show:false}); var toast = toastS[0]; var setToast = toastS[1];
+  var pwaS    = useState(false);        var showPwa = pwaS[0]; var setShowPwa = pwaS[1];
+  var pwaDismS= useState(false);        var pwaDism = pwaDismS[0]; var setPwaDism = pwaDismS[1];
+
+  useEffect(function() {
+    /* show banner after 3s if prompt is available and not dismissed */
+    var timer = setTimeout(function() {
+      if (_pwaPrompt && !pwaDism && !localStorage.getItem('pwa-dismissed')) {
+        setShowPwa(true);
+      }
+    }, 3000);
+    var handler = function() {
+      if (_pwaPrompt && !localStorage.getItem('pwa-dismissed')) setShowPwa(true);
+    };
+    window.addEventListener('beforeinstallprompt', handler);
+    return function() { clearTimeout(timer); window.removeEventListener('beforeinstallprompt', handler); };
+  }, []);
+
+  function installPwa() {
+    if (!_pwaPrompt) return;
+    _pwaPrompt.prompt();
+    _pwaPrompt.userChoice.then(function(r) {
+      if (r.outcome === 'accepted') { setShowPwa(false); _pwaPrompt = null; }
+    });
+  }
+  function dismissPwa() {
+    setShowPwa(false); setPwaDism(true);
+    localStorage.setItem('pwa-dismissed', '1');
+  }
 
   function showToast(msg) {
     setToast({msg:msg,show:true});
@@ -763,7 +879,8 @@ function MainApp() {
     E('div', {className:'scroll'},
       tab==='home'    && E(HomeTab,    {txs:txs}),
       tab==='goals'   && E(GoalsTab,   {goals:goals, setGoals:setGoals, showToast:showToast}),
-      tab==='history' && E(HistoryTab, {txs:txs, setTxs:setTxs, showToast:showToast})
+      tab==='history' && E(HistoryTab, {txs:txs, setTxs:setTxs, showToast:showToast}),
+      showPwa && E(PwaBanner, {onInstall:installPwa, onDismiss:dismissPwa})
     ),
     showFab && E('button', {className:'fab', onClick:function(){setAddMod(true);}}, '+'),
     E('nav', {className:'bnav'},
