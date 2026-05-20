@@ -139,6 +139,27 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:var(--f
 .pwa-banner-sub{font-size:11px;color:var(--muted)}
 .pwa-install-btn{background:var(--accent);border:none;color:#000;font-family:var(--fd);font-size:12px;font-weight:700;padding:8px 14px;border-radius:var(--rs);cursor:pointer;white-space:nowrap;flex-shrink:0}
 .pwa-dismiss{background:none;border:none;color:var(--dim);font-size:18px;cursor:pointer;padding:0;line-height:1;flex-shrink:0}
+/* fixed bills */
+.bill-item{background:var(--surface);border:1px solid var(--border);border-radius:var(--r);padding:14px;margin-bottom:10px;display:flex;align-items:center;gap:12px;position:relative}
+.bill-item.overdue{border-color:var(--red)}
+.bill-item.paid{opacity:.55}
+.bill-check{width:28px;height:28px;border-radius:50%;border:2px solid var(--border2);background:none;cursor:pointer;display:flex;align-items:center;justify-content:center;font-size:14px;flex-shrink:0;transition:all .15s}
+.bill-check.done{background:var(--green-dim);border-color:var(--green);color:var(--green)}
+.bill-check.overdue{border-color:var(--red)}
+.bill-info{flex:1;min-width:0}
+.bill-name{font-size:14px;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.bill-meta{font-size:11px;color:var(--muted);margin-top:3px;display:flex;align-items:center;gap:6px;flex-wrap:wrap}
+.bill-due{font-family:var(--fm)}
+.bill-tag{font-size:10px;font-weight:600;padding:2px 7px;border-radius:6px;background:var(--red-dim);color:var(--red)}
+.bill-tag.ok{background:var(--green-dim);color:var(--green)}
+.bill-tag.soon{background:var(--amber-dim);color:var(--amber)}
+.bill-amt{font-size:15px;font-weight:700;font-family:var(--fm);color:var(--red);flex-shrink:0}
+.bill-del{position:absolute;right:0;top:0;bottom:0;width:0;background:var(--red-dim);display:flex;align-items:center;justify-content:center;cursor:pointer;transition:width .2s;overflow:hidden;font-size:18px;border-left:1px solid var(--border);border-radius:0 var(--r) var(--r) 0}
+.bill-item:hover .bill-del{width:44px}
+.summary-bar{display:flex;gap:8px;padding:0 20px 16px}
+.sbar{flex:1;background:var(--surface);border:1px solid var(--border);border-radius:var(--r);padding:12px;text-align:center}
+.sbar-val{font-size:17px;font-weight:700;font-family:var(--fm)}
+.sbar-lbl{font-size:10px;font-weight:600;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);margin-top:3px}
 </style>
 </head>
 <body>
@@ -809,6 +830,224 @@ function HistoryTab(props) {
   );
 }
 
+/* ── Bills ── */
+function AddBillModal(props) {
+  var nameS  = useState('');      var name   = nameS[0];   var setName   = nameS[1];
+  var amtS   = useState('');      var amount = amtS[0];    var setAmount = amtS[1];
+  var catS   = useState('Moradia'); var cat  = catS[0];    var setCat    = catS[1];
+  var fixedS = useState(true);    var fixed  = fixedS[0];  var setFixed  = fixedS[1];
+  var dayS   = useState('');      var day    = dayS[0];    var setDay    = dayS[1];
+  var cardS  = useState('');      var cardId = cardS[0];   var setCardId = cardS[1];
+
+  function submit() {
+    var v = parseFloat(amount.replace(',','.'));
+    if (!name.trim() || isNaN(v) || v <= 0) return;
+    if (fixed && (!day || +day < 1 || +day > 31)) return;
+    props.onSave({
+      id: Date.now(),
+      name: name.trim(),
+      amount: v,
+      cat: cat,
+      fixed: fixed,
+      day: fixed ? +day : null,
+      cardId: cardId || null,
+      payments: {}   /* key: "YYYY-MM" -> {paid, date} */
+    });
+    props.onClose();
+  }
+  function stopProp(ev){ ev.stopPropagation(); }
+
+  return E('div',{className:'ov',onClick:props.onClose},
+    E('div',{className:'modal',onClick:stopProp},
+      E('div',{className:'modal-title'}, props.editing ? 'Editar Conta' : 'Nova Conta Fixa'),
+      E('div',{className:'fg'},
+        E('label',{className:'fl'},'Nome da conta'),
+        E('input',{className:'fi',placeholder:'Ex: Aluguel, Netflix, Luz\u2026',value:name,onChange:function(ev){setName(ev.target.value);}})
+      ),
+      E('div',{className:'frow'},
+        E('div',{className:'fg'},
+          E('label',{className:'fl'},'Valor (R$)'),
+          E('input',{className:'fi',type:'number',inputMode:'decimal',placeholder:'0,00',value:amount,onChange:function(ev){setAmount(ev.target.value);}})
+        ),
+        E('div',{className:'fg'},
+          E('label',{className:'fl'},'Categoria'),
+          E('select',{className:'fi',value:cat,onChange:function(ev){setCat(ev.target.value);}},
+            CATS_EX.map(function(c){return E('option',{key:c,value:c},c);})
+          )
+        )
+      ),
+      E('label',{className:'inst-toggle'},
+        E('input',{type:'checkbox',checked:fixed,onChange:function(ev){setFixed(ev.target.checked);}}),
+        E('span',null,'Vencimento fixo todo m\u00eas')
+      ),
+      fixed && E('div',{className:'fg'},
+        E('label',{className:'fl'},'Dia do vencimento'),
+        E('input',{className:'fi',type:'number',inputMode:'numeric',placeholder:'Ex: 10',min:'1',max:'31',value:day,onChange:function(ev){setDay(ev.target.value);}})
+      ),
+      props.cards && props.cards.length > 0 &&
+        E('div',{className:'fg'},
+          E('label',{className:'fl'},'Cart\u00e3o (opcional)'),
+          E('select',{className:'fi',value:cardId,onChange:function(ev){setCardId(ev.target.value);}},
+            E('option',{value:''},'Sem cart\u00e3o'),
+            props.cards.map(function(c){return E('option',{key:c.id,value:String(c.id)},c.name);})
+          )
+        ),
+      E('button',{className:'sbtn',onClick:submit},'Salvar'),
+      E('button',{className:'cbtn',onClick:props.onClose},'Cancelar')
+    )
+  );
+}
+
+function BillsTab(props) {
+  var modalS  = useState(false); var showModal = modalS[0]; var setShowModal = modalS[1];
+  var monthOS = useState(0);     var mOff = monthOS[0];     var setMOff = monthOS[1];
+
+  var mb  = monthBounds(mOff);
+  var now = new Date();
+  var mk  = mb.first.getFullYear()+'-'+String(mb.first.getMonth()+1).padStart(2,'0');
+
+  function isPaid(bill) {
+    return !!(bill.payments && bill.payments[mk] && bill.payments[mk].paid);
+  }
+  function getDueDate(bill) {
+    if (!bill.fixed || !bill.day) return null;
+    var d = new Date(mb.first.getFullYear(), mb.first.getMonth(), bill.day);
+    return d;
+  }
+  function getDueLabel(bill) {
+    if (!bill.fixed) return 'Vencimento vari\u00e1vel';
+    var d = getDueDate(bill);
+    if (!d) return '';
+    return 'Vence dia ' + bill.day;
+  }
+  function getStatus(bill) {
+    if (isPaid(bill)) return 'ok';
+    if (!bill.fixed) return 'pending';
+    var d = getDueDate(bill);
+    if (!d) return 'pending';
+    var today = new Date(); today.setHours(0,0,0,0);
+    var due = new Date(d); due.setHours(0,0,0,0);
+    var diff = Math.round((due-today)/(1000*60*60*24));
+    if (diff < 0)  return 'overdue';
+    if (diff <= 5) return 'soon';
+    return 'pending';
+  }
+
+  function togglePaid(bill) {
+    var wasPaid = isPaid(bill);
+    props.setBills(function(bs) {
+      return bs.map(function(b) {
+        if (b.id !== bill.id) return b;
+        var payments = Object.assign({}, b.payments || {});
+        if (wasPaid) {
+          delete payments[mk];
+          /* remove auto-tx if it was created */
+          if (payments[mk+'_txid']) {
+            var txid = payments[mk+'_txid'];
+            props.setTxs(function(ts){return ts.filter(function(t){return t.id!==txid;});});
+            delete payments[mk+'_txid'];
+          }
+        } else {
+          var txid2 = Date.now();
+          payments[mk] = {paid:true, date:new Date().toISOString(), txid:txid2};
+          /* auto-create transaction */
+          props.setTxs(function(ts){
+            return ts.concat([{
+              id: txid2,
+              type: 'expense',
+              desc: b.name,
+              amount: b.amount,
+              cat: b.cat,
+              cardId: b.cardId||null,
+              date: new Date().toISOString(),
+              fromBill: b.id
+            }]);
+          });
+          props.showToast(b.name+' marcada como paga \u2705');
+        }
+        return Object.assign({}, b, {payments: payments});
+      });
+    });
+  }
+
+  function delBill(id) {
+    props.setBills(function(bs){return bs.filter(function(b){return b.id!==id;});});
+    props.showToast('Conta removida');
+  }
+
+  var bills = props.bills;
+  var totalDue  = bills.reduce(function(s,b){return s+b.amount;},0);
+  var totalPaid = bills.filter(isPaid).reduce(function(s,b){return s+b.amount;},0);
+  var totalLeft = totalDue - totalPaid;
+
+  /* sort: overdue first, then by due day, then alphabetical */
+  var sorted = bills.slice().sort(function(a,b) {
+    var sa = getStatus(a); var sb = getStatus(b);
+    var order = {overdue:0,soon:1,pending:2,ok:3};
+    if (order[sa] !== order[sb]) return order[sa]-order[sb];
+    if (a.day && b.day) return a.day-b.day;
+    return a.name.localeCompare(b.name);
+  });
+
+  return E('div',null,
+    E('div',{className:'hd'},
+      E('div',{className:'hd-row'},
+        E('div',{className:'wnav'},
+          E('button',{className:'wbtn',onClick:function(){setMOff(function(o){return o-1;});}},'\u2039'),
+          E('span',{className:'wlabel'},mb.label),
+          E('button',{className:'wbtn',disabled:mOff>=0,onClick:function(){setMOff(function(o){return Math.min(0,o+1);});}},'\u203a')
+        ),
+        E('button',{className:'actbtn',onClick:function(){setShowModal(true);}},'+  Adicionar')
+      )
+    ),
+    E('div',{style:{height:'14px'}}),
+    bills.length > 0 && E('div',{className:'summary-bar'},
+      E('div',{className:'sbar'},
+        E('div',{className:'sbar-val',style:{color:'var(--red)'}},fmtShort(totalLeft)),
+        E('div',{className:'sbar-lbl'},'A pagar')
+      ),
+      E('div',{className:'sbar'},
+        E('div',{className:'sbar-val',style:{color:'var(--green)'}},fmtShort(totalPaid)),
+        E('div',{className:'sbar-lbl'},'Pago')
+      ),
+      E('div',{className:'sbar'},
+        E('div',{className:'sbar-val'},bills.filter(isPaid).length+'/'+bills.length),
+        E('div',{className:'sbar-lbl'},'Contas')
+      )
+    ),
+    E('div',{className:'sec'},
+      sorted.length===0
+        ? E('div',{className:'empty'},E('div',{className:'empty-ico'},'\uD83D\uDCCB'),E('div',{className:'empty-txt'},'Cadastre suas contas fixas mensais'))
+        : sorted.map(function(bill) {
+            var paid   = isPaid(bill);
+            var status = getStatus(bill);
+            var tagTxt = status==='overdue'?'Vencida':status==='soon'?'Vence em breve':paid?'Paga':'Pendente';
+            var tagCls = paid?'ok':status==='soon'?'soon':'';
+            return E('div',{key:bill.id, className:'bill-item'+(paid?' paid':'')+(status==='overdue'&&!paid?' overdue':'')},
+              E('button',{
+                className:'bill-check'+(paid?' done':status==='overdue'?' overdue':''),
+                onClick:function(){togglePaid(bill);}
+              }, paid?'\u2713':''),
+              E('div',{className:'bill-info'},
+                E('div',{className:'bill-name'},bill.name),
+                E('div',{className:'bill-meta'},
+                  E('span',{className:'bill-due'},getDueLabel(bill)),
+                  E('span',{className:'bill-tag'+' '+tagCls},tagTxt)
+                )
+              ),
+              E('div',{className:'bill-amt'},'\u2212'+fmt(bill.amount)),
+              E('div',{className:'bill-del',onClick:function(){delBill(bill.id);}},'\uD83D\uDDD1')
+            );
+          })
+    ),
+    showModal && E(AddBillModal,{
+      onClose:function(){setShowModal(false);},
+      cards:props.cards,
+      onSave:function(b){props.setBills(function(bs){return bs.concat([b]);});props.showToast('Conta adicionada!');}
+    })
+  );
+}
+
 /* PWA Install Banner */
 function PwaBanner(props) {
   return E('div', {className:'pwa-banner'},
@@ -825,6 +1064,7 @@ function PwaBanner(props) {
 function MainApp() {
   var txsS    = useLS('fin_txs',   []); var txs    = txsS[0]; var setTxs    = txsS[1];
   var goalsS  = useLS('fin_goals', []); var goals  = goalsS[0]; var setGoals  = goalsS[1];
+  var billsS  = useLS('fin_bills', []); var bills  = billsS[0]; var setBills  = billsS[1];
   var cardsS  = useLS('fin_cards', []); var cards  = cardsS[0];
   var tabS    = useState('home');       var tab    = tabS[0]; var setTab    = tabS[1];
   var addS    = useState(false);        var addMod = addS[0]; var setAddMod = addS[1];
@@ -869,8 +1109,9 @@ function MainApp() {
 
   var TABS = [
     {id:'home',    icon:'\uD83C\uDFE0', label:'In\u00edcio'},
+    {id:'bills',   icon:'\uD83D\uDCCB', label:'Contas'},
     {id:'goals',   icon:'\uD83C\uDFAF', label:'Metas'},
-    {id:'history', icon:'\uD83D\uDCCB', label:'Hist\u00f3rico'},
+    {id:'history', icon:'\uD83D\uDD0D', label:'Hist\u00f3rico'},
   ];
 
   var showFab = tab === 'home' || tab === 'history';
@@ -878,6 +1119,7 @@ function MainApp() {
   return E('div', {className:'app'},
     E('div', {className:'scroll'},
       tab==='home'    && E(HomeTab,    {txs:txs}),
+      tab==='bills'   && E(BillsTab,   {bills:bills, setBills:setBills, setTxs:setTxs, cards:cards, showToast:showToast}),
       tab==='goals'   && E(GoalsTab,   {goals:goals, setGoals:setGoals, showToast:showToast}),
       tab==='history' && E(HistoryTab, {txs:txs, setTxs:setTxs, showToast:showToast}),
       showPwa && E(PwaBanner, {onInstall:installPwa, onDismiss:dismissPwa})
