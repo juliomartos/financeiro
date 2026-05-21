@@ -160,6 +160,34 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:var(--f
 .sbar{flex:1;background:var(--surface);border:1px solid var(--border);border-radius:var(--r);padding:12px;text-align:center}
 .sbar-val{font-size:17px;font-weight:700;font-family:var(--fm)}
 .sbar-lbl{font-size:10px;font-weight:600;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);margin-top:3px}
+/* dashboard */
+.dash-section{padding:0 20px;margin-bottom:24px}
+.dash-title{font-size:11px;font-weight:600;letter-spacing:.1em;text-transform:uppercase;color:var(--muted);margin-bottom:12px}
+.dash-card{background:var(--surface);border:1px solid var(--border);border-radius:var(--r);padding:16px;margin-bottom:12px}
+.dash-card-title{font-size:12px;font-weight:700;color:var(--muted);letter-spacing:.06em;text-transform:uppercase;margin-bottom:14px}
+.chart-wrap{width:100%;overflow:hidden}
+/* bar chart */
+.bar-row{display:flex;align-items:center;gap:8px;margin-bottom:8px}
+.bar-label{font-size:11px;color:var(--muted);width:80px;flex-shrink:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;text-align:right}
+.bar-track{flex:1;background:var(--border);border-radius:4px;height:8px;overflow:hidden}
+.bar-fill{height:100%;border-radius:4px;transition:width .5s ease}
+.bar-val{font-size:11px;font-family:var(--fm);color:var(--text);width:64px;flex-shrink:0;text-align:right}
+/* donut */
+.donut-wrap{display:flex;align-items:center;gap:16px}
+.donut-legend{flex:1;min-width:0}
+.legend-row{display:flex;align-items:center;gap:8px;margin-bottom:7px}
+.legend-dot{width:10px;height:10px;border-radius:50%;flex-shrink:0}
+.legend-name{font-size:12px;flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.legend-pct{font-size:11px;font-family:var(--fm);color:var(--muted)}
+/* month selector for dash */
+.dash-period{display:flex;align-items:center;justify-content:space-between;padding:14px 20px 0}
+.dash-period-label{font-size:15px;font-weight:700}
+.dash-nav{display:flex;gap:6px}
+/* kpi row */
+.kpi-row{display:grid;grid-template-columns:1fr 1fr;gap:10px;padding:0 20px 4px}
+.kpi{background:var(--surface);border:1px solid var(--border);border-radius:var(--r);padding:14px}
+.kpi-val{font-size:20px;font-weight:800;font-family:var(--fm);letter-spacing:-.02em}
+.kpi-lbl{font-size:10px;font-weight:600;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);margin-top:4px}
 </style>
 </head>
 <body>
@@ -539,33 +567,78 @@ function AddToGoalModal(props) {
 
 /* Manage bills modal - list existing + add new */
 function ManageBillsModal(props) {
-  var addingS = useState(false); var adding = addingS[0]; var setAdding = addingS[1];
+  var addingS  = useState(false); var adding  = addingS[0];  var setAdding  = addingS[1];
+  var confirmS = useState(null);  var confirm = confirmS[0]; var setConfirm = confirmS[1];
+
   function stopProp(ev){ ev.stopPropagation(); }
+
+  function handleDel(id, ev) {
+    ev.stopPropagation();
+    setConfirm(id);
+  }
+  function confirmDel(ev) {
+    ev.stopPropagation();
+    props.onDel(confirm);
+    setConfirm(null);
+  }
+  function cancelDel(ev) {
+    ev.stopPropagation();
+    setConfirm(null);
+  }
+
   if (adding) return E(AddBillModal,{
     onClose:function(){setAdding(false);},
     cards:props.cards,
     onSave:function(b){props.onAdd(b);setAdding(false);}
   });
+
   return E('div',{className:'ov',onClick:props.onClose},
     E('div',{className:'modal',onClick:stopProp},
       E('div',{style:{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'20px'}},
         E('div',{className:'modal-title',style:{marginBottom:0}},'Contas Fixas'),
-        E('button',{className:'actbtn',onClick:function(){setAdding(true);}},'+  Nova')
+        E('button',{className:'actbtn',onClick:function(ev){ev.stopPropagation();setAdding(true);}},'+  Nova')
       ),
+
+      /* confirm delete overlay */
+      confirm && E('div',{style:{background:'var(--red-dim)',border:'1px solid var(--red)',borderRadius:'var(--rs)',padding:'14px',marginBottom:'14px'}},
+        E('div',{style:{fontSize:'13px',fontWeight:700,marginBottom:'10px',color:'var(--red)'}},
+          'Remover esta conta?'
+        ),
+        E('div',{style:{display:'flex',gap:'8px'}},
+          E('button',{className:'sbtn',style:{background:'var(--red)',flex:1,marginTop:0},onClick:confirmDel},'Sim, remover'),
+          E('button',{className:'cbtn',style:{flex:1,marginTop:0},onClick:cancelDel},'Cancelar')
+        )
+      ),
+
       props.bills.length===0
         ? E('div',{className:'empty'},E('div',{className:'empty-ico'},'\uD83D\uDCCB'),E('div',{className:'empty-txt'},'Nenhuma conta cadastrada'))
         : props.bills.map(function(b){
-            return E('div',{key:b.id,style:{display:'flex',alignItems:'center',gap:'10px',padding:'10px 0',borderBottom:'1px solid var(--border)'}},
-              E('div',{style:{flex:1}},
-                E('div',{style:{fontSize:'14px',fontWeight:700}},b.name),
-                E('div',{style:{fontSize:'11px',color:'var(--muted)',marginTop:'2px'}},
-                  fmt(b.amount)+(b.fixed&&b.day?' · dia '+b.day:' · variável')
+            var isConfirming = confirm === b.id;
+            return E('div',{key:b.id,style:{
+              display:'flex',alignItems:'center',gap:'10px',
+              padding:'12px 0',borderBottom:'1px solid var(--border)',
+              opacity: confirm && !isConfirming ? 0.4 : 1,
+              transition:'opacity .2s'
+            }},
+              E('div',{style:{flex:1,minWidth:0}},
+                E('div',{style:{fontSize:'14px',fontWeight:700,whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis'}},b.name),
+                E('div',{style:{fontSize:'11px',color:'var(--muted)',marginTop:'3px',fontFamily:'var(--fm)'}},
+                  fmt(b.amount)+(b.fixed&&b.day?' · vence dia '+b.day:' · variável')
                 )
               ),
-              E('button',{className:'del-btn',style:{marginTop:0},onClick:function(){props.onDel(b.id);}},'Remover')
+              E('button',{
+                style:{
+                  background: isConfirming?'var(--red)':'var(--red-dim)',
+                  border:'1px solid var(--red)',color:isConfirming?'#fff':'var(--red)',
+                  borderRadius:'var(--rs)',padding:'6px 12px',cursor:'pointer',
+                  fontFamily:'var(--fd)',fontSize:'12px',fontWeight:700,flexShrink:0,
+                  transition:'all .15s'
+                },
+                onClick:function(ev){handleDel(b.id,ev);}
+              }, isConfirming ? 'Tem certeza?' : 'Remover')
             );
           }),
-      E('button',{className:'cbtn',onClick:props.onClose},'Fechar')
+      E('button',{className:'cbtn',style:{marginTop:'16px'},onClick:function(ev){ev.stopPropagation();props.onClose();}},'Fechar')
     )
   );
 }
@@ -1154,6 +1227,284 @@ function BillsTab(props) {
   );
 }
 
+/* ── Dashboard ── */
+var CHART_COLORS = ['#4ade80','#60a5fa','#fbbf24','#f87171','#c084fc','#34d399','#fb923c','#a78bfa','#38bdf8','#f472b6'];
+
+function DonutChart(props) {
+  /* props: slices=[{label,value,color}], size */
+  var size = props.size || 140;
+  var r = size/2 - 16; var cx = size/2; var cy = size/2;
+  var total = props.slices.reduce(function(s,sl){return s+sl.value;},0);
+  if(total===0) return E('svg',{width:size,height:size},
+    E('circle',{cx:cx,cy:cy,r:r,fill:'none',stroke:'var(--border)',strokeWidth:22}),
+    E('text',{x:cx,y:cy+5,textAnchor:'middle',fill:'var(--dim)',fontSize:12},'Sem dados')
+  );
+  var elems=[]; var angle=-Math.PI/2;
+  props.slices.forEach(function(sl,i){
+    var pct=sl.value/total;
+    var sweep=pct*2*Math.PI;
+    var x1=cx+r*Math.cos(angle); var y1=cy+r*Math.sin(angle);
+    angle+=sweep;
+    var x2=cx+r*Math.cos(angle); var y2=cy+r*Math.sin(angle);
+    var large=sweep>Math.PI?1:0;
+    var d='M'+cx+' '+cy+' L'+x1+' '+y1+' A'+r+' '+r+' 0 '+large+' 1 '+x2+' '+y2+' Z';
+    elems.push(E('path',{key:i,d:d,fill:sl.color,opacity:.9}));
+  });
+  /* inner hole */
+  elems.push(E('circle',{key:'hole',cx:cx,cy:cy,r:r*0.58,fill:'var(--surface)'}));
+  var pctTop = props.slices[0] ? Math.round(props.slices[0].value/total*100)+'%' : '';
+  elems.push(E('text',{key:'pct',x:cx,y:cy-4,textAnchor:'middle',fill:'var(--text)',fontSize:15,fontWeight:700,fontFamily:'var(--fm)'},pctTop));
+  elems.push(E('text',{key:'lbl',x:cx,y:cy+14,textAnchor:'middle',fill:'var(--muted)',fontSize:9},props.slices[0]?props.slices[0].label.slice(0,10):''));
+  return E('svg',{width:size,height:size,viewBox:'0 0 '+size+' '+size},elems);
+}
+
+function BarChart(props) {
+  /* props: items=[{label,value,color}], max */
+  var max = props.max || Math.max.apply(null,props.items.map(function(i){return i.value||0;}))||1;
+  return E('div',null,
+    props.items.map(function(item,i){
+      var pct = Math.min(100,Math.round((item.value/max)*100));
+      return E('div',{key:i,className:'bar-row'},
+        E('div',{className:'bar-label'},item.label),
+        E('div',{className:'bar-track'},
+          E('div',{className:'bar-fill',style:{width:pct+'%',background:item.color||'var(--accent)'}})
+        ),
+        E('div',{className:'bar-val'},fmtShort(item.value))
+      );
+    })
+  );
+}
+
+function LineChart(props) {
+  /* props: points=[{label,value}], width, height, color */
+  var W=props.width||300; var H=props.height||90;
+  var pts=props.points; var color=props.color||'var(--accent)';
+  if(!pts||pts.length<2) return E('div',{style:{height:H,display:'flex',alignItems:'center',justifyContent:'center',color:'var(--dim)',fontSize:12}},'Dados insuficientes');
+  var vals=pts.map(function(p){return p.value;});
+  var minV=Math.min.apply(null,vals); var maxV=Math.max.apply(null,vals);
+  var range=maxV-minV||1;
+  var padX=8; var padY=12;
+  var W2=W-padX*2; var H2=H-padY*2;
+  function px(i){return padX+i*(W2/(pts.length-1));}
+  function py(v){return padY+H2-(((v-minV)/range)*H2);}
+  var polyline=pts.map(function(p,i){return px(i)+','+py(p.value);}).join(' ');
+  /* area fill */
+  var area='M'+padX+','+py(minV)+' '+pts.map(function(p,i){return px(i)+','+py(p.value);}).join(' ')+' '+px(pts.length-1)+','+py(minV)+' Z';
+  return E('svg',{width:'100%',viewBox:'0 0 '+W+' '+H,preserveAspectRatio:'none'},
+    E('defs',null,
+      E('linearGradient',{id:'lg'+props.id,x1:'0',y1:'0',x2:'0',y2:'1'},
+        E('stop',{offset:'0%',stopColor:color,stopOpacity:.3}),
+        E('stop',{offset:'100%',stopColor:color,stopOpacity:0})
+      )
+    ),
+    E('path',{d:area,fill:'url(#lg'+props.id+')'}),
+    E('polyline',{points:polyline,fill:'none',stroke:color,strokeWidth:2,strokeLinejoin:'round',strokeLinecap:'round'}),
+    pts.map(function(p,i){
+      return E('circle',{key:i,cx:px(i),cy:py(p.value),r:3,fill:color});
+    }),
+    pts.map(function(p,i){
+      var x=px(i); var anchor=i===0?'start':i===pts.length-1?'end':'middle';
+      return E('text',{key:'l'+i,x:x,y:H-1,textAnchor:anchor,fill:'var(--dim)',fontSize:8},p.label);
+    })
+  );
+}
+
+function DashboardTab(props) {
+  var offS = useState(0); var offset = offS[0]; var setOffset = offS[1];
+  var mb = monthBounds(offset);
+  var mk = mb.first.getFullYear()+'-'+String(mb.first.getMonth()+1).padStart(2,'0');
+
+  var txs   = props.txs;
+  var bills = props.bills||[];
+  var goals = props.goals||[];
+
+  /* txs in this month */
+  var monthTxs = txs.filter(function(t){
+    var d=new Date(t.date); return d>=mb.first&&d<=mb.last&&!t.fromBill;
+  });
+  var income  = monthTxs.filter(function(t){return t.type==='income';}).reduce(function(s,t){return s+t.amount;},0);
+  var expense = monthTxs.filter(function(t){return t.type==='expense';}).reduce(function(s,t){return s+t.amount;},0);
+  /* bills */
+  function billPaid(b){return !!(b.payments&&b.payments[mk]&&b.payments[mk].paid);}
+  var billsTotal = bills.reduce(function(s,b){return s+b.amount;},0);
+  var billsPaid  = bills.filter(billPaid).reduce(function(s,b){return s+b.amount;},0);
+  var billsLeft  = billsTotal-billsPaid;
+  var totalExp   = expense + billsLeft;
+  var balance    = income - totalExp;
+
+  /* ── 1. Gastos por categoria ── */
+  var catMap = {};
+  monthTxs.filter(function(t){return t.type==='expense';}).forEach(function(t){
+    catMap[t.cat]=(catMap[t.cat]||0)+t.amount;
+  });
+  /* add paid bills by cat */
+  bills.filter(billPaid).forEach(function(b){ catMap[b.cat]=(catMap[b.cat]||0)+b.amount; });
+  var catSlices = Object.keys(catMap).map(function(k,i){
+    return {label:k, value:catMap[k], color:CHART_COLORS[i%CHART_COLORS.length]};
+  }).sort(function(a,b){return b.value-a.value;}).slice(0,8);
+
+  /* ── 2. Últimos 6 meses: saldo ── */
+  var monthPoints = [];
+  for(var mi=-5;mi<=0;mi++){
+    var mb2=monthBounds(offset+mi);
+    var mk2=mb2.first.getFullYear()+'-'+String(mb2.first.getMonth()+1).padStart(2,'0');
+    var mTxs=txs.filter(function(t){var d=new Date(t.date);return d>=mb2.first&&d<=mb2.last&&!t.fromBill;});
+    var mInc=mTxs.filter(function(t){return t.type==='income';}).reduce(function(s,t){return s+t.amount;},0);
+    var mExp=mTxs.filter(function(t){return t.type==='expense';}).reduce(function(s,t){return s+t.amount;},0);
+    var mBillsLeft=bills.reduce(function(s,b){return billPaid(b)?s:s+b.amount;},0);
+    var mBal=mInc-mExp-(mi===0?mBillsLeft:0);
+    monthPoints.push({label:mb2.first.toLocaleDateString('pt-BR',{month:'short'}),value:mBal});
+  }
+
+  /* ── 3. Entradas vs Saídas últimos 6 meses ── */
+  var incPoints=[]; var expPoints=[];
+  for(var mi2=-5;mi2<=0;mi2++){
+    var mb3=monthBounds(offset+mi2);
+    var mTxs2=txs.filter(function(t){var d=new Date(t.date);return d>=mb3.first&&d<=mb3.last&&!t.fromBill;});
+    var mInc2=mTxs2.filter(function(t){return t.type==='income';}).reduce(function(s,t){return s+t.amount;},0);
+    var mExp2=mTxs2.filter(function(t){return t.type==='expense';}).reduce(function(s,t){return s+t.amount;},0);
+    var lbl=mb3.first.toLocaleDateString('pt-BR',{month:'short'});
+    incPoints.push({label:lbl,value:mInc2});
+    expPoints.push({label:lbl,value:mExp2});
+  }
+
+  /* ── 4. Contas fixas pagas vs pendentes ── */
+  var billSlices = bills.length ? [
+    {label:'Pagas',   value:billsPaid, color:'var(--green)'},
+    {label:'Pendentes',value:billsLeft,color:'var(--red)'}
+  ] : [];
+
+  /* ── 5. Progresso das metas ── */
+  var goalBars = goals.map(function(g){
+    return {label:g.emoji+' '+g.name, value:g.saved, max:g.target, color:'var(--accent)'};
+  });
+
+  return E('div',null,
+    E('div',{className:'hd'},
+      E('div',{className:'hd-row'},
+        E('span',{className:'hd-label'},'Dashboard'),
+        E('div',{className:'wnav'},
+          E('button',{className:'wbtn',onClick:function(){setOffset(function(o){return o-1;});}},'‹'),
+          E('span',{className:'wlabel'},mb.label),
+          E('button',{className:'wbtn',disabled:offset>=0,onClick:function(){setOffset(function(o){return Math.min(0,o+1);});}},'›')
+        )
+      )
+    ),
+    E('div',{style:{height:'14px'}}),
+
+    /* KPIs */
+    E('div',{className:'kpi-row'},
+      E('div',{className:'kpi'},
+        E('div',{className:'kpi-val',style:{color:balance>=0?'var(--green)':'var(--red)'}},fmtShort(balance)),
+        E('div',{className:'kpi-lbl'},'Saldo do mês')
+      ),
+      E('div',{className:'kpi'},
+        E('div',{className:'kpi-val',style:{color:'var(--green)'}},fmtShort(income)),
+        E('div',{className:'kpi-lbl'},'Receitas')
+      ),
+      E('div',{className:'kpi'},
+        E('div',{className:'kpi-val',style:{color:'var(--red)'}},fmtShort(totalExp)),
+        E('div',{className:'kpi-lbl'},'Saídas totais')
+      ),
+      E('div',{className:'kpi'},
+        E('div',{className:'kpi-val',style:{color:'var(--amber)'}},fmtShort(billsLeft)),
+        E('div',{className:'kpi-lbl'},'Contas a pagar')
+      )
+    ),
+
+    /* Gastos por categoria */
+    catSlices.length > 0 && E('div',{className:'dash-section'},
+      E('div',{className:'dash-title'},'Gastos por categoria'),
+      E('div',{className:'dash-card'},
+        E('div',{className:'donut-wrap'},
+          E(DonutChart,{slices:catSlices,size:130}),
+          E('div',{className:'donut-legend'},
+            catSlices.map(function(sl,i){
+              var total2=catSlices.reduce(function(s,x){return s+x.value;},0);
+              return E('div',{key:i,className:'legend-row'},
+                E('div',{className:'legend-dot',style:{background:sl.color}}),
+                E('div',{className:'legend-name'},sl.label),
+                E('div',{className:'legend-pct'},Math.round(sl.value/total2*100)+'%')
+              );
+            })
+          )
+        )
+      )
+    ),
+
+    /* Evolução do saldo */
+    E('div',{className:'dash-section'},
+      E('div',{className:'dash-title'},'Evolução do saldo (6 meses)'),
+      E('div',{className:'dash-card'},
+        E(LineChart,{points:monthPoints,id:'bal',color:'var(--accent)',height:90})
+      )
+    ),
+
+    /* Entradas vs Saídas */
+    E('div',{className:'dash-section'},
+      E('div',{className:'dash-title'},'Entradas vs saídas'),
+      E('div',{className:'dash-card'},
+        E('div',{style:{marginBottom:'10px'}},
+          E('div',{style:{fontSize:'11px',color:'var(--green)',fontWeight:700,marginBottom:'4px'}},'● Receitas'),
+          E(LineChart,{points:incPoints,id:'inc',color:'var(--green)',height:70})
+        ),
+        E('div',null,
+          E('div',{style:{fontSize:'11px',color:'var(--red)',fontWeight:700,marginBottom:'4px'}},'● Saídas'),
+          E(LineChart,{points:expPoints,id:'exp',color:'var(--red)',height:70})
+        )
+      )
+    ),
+
+    /* Contas fixas */
+    bills.length > 0 && E('div',{className:'dash-section'},
+      E('div',{className:'dash-title'},'Contas fixas — '+mb.label),
+      E('div',{className:'dash-card'},
+        E('div',{className:'donut-wrap'},
+          E(DonutChart,{slices:billSlices,size:120}),
+          E('div',{className:'donut-legend'},
+            E('div',{className:'legend-row'},E('div',{className:'legend-dot',style:{background:'var(--green)'}}),E('div',{className:'legend-name'},'Pagas'),E('div',{className:'legend-pct'},fmt(billsPaid))),
+            E('div',{className:'legend-row'},E('div',{className:'legend-dot',style:{background:'var(--red)'}}),E('div',{className:'legend-name'},'Pendentes'),E('div',{className:'legend-pct'},fmt(billsLeft))),
+            E('div',{className:'legend-row'},E('div',{className:'legend-dot',style:{background:'var(--border)'}}),E('div',{className:'legend-name'},'Total'),E('div',{className:'legend-pct'},fmt(billsTotal)))
+          )
+        ),
+        E('div',{style:{marginTop:'14px'}},
+          E('div',{className:'pbar',style:{height:'10px'}},
+            E('div',{className:'pfill safe',style:{width:(billsTotal?Math.round(billsPaid/billsTotal*100):0)+'%'}})
+          ),
+          E('div',{style:{fontSize:'11px',color:'var(--muted)',marginTop:'6px',fontFamily:'var(--fm)'}},
+            Math.round(billsTotal?billsPaid/billsTotal*100:0)+'% pago · '+bills.filter(billPaid).length+'/'+bills.length+' contas'
+          )
+        )
+      )
+    ),
+
+    /* Progresso das metas */
+    goals.length > 0 && E('div',{className:'dash-section'},
+      E('div',{className:'dash-title'},'Progresso das metas'),
+      E('div',{className:'dash-card'},
+        goalBars.map(function(g,i){
+          var pct=Math.min(100,Math.round(g.value/g.max*100));
+          return E('div',{key:i,style:{marginBottom:i<goalBars.length-1?'14px':0}},
+            E('div',{style:{display:'flex',justifyContent:'space-between',marginBottom:'5px'}},
+              E('span',{style:{fontSize:'13px',fontWeight:600}},g.label),
+              E('span',{style:{fontSize:'12px',fontFamily:'var(--fm)',color:'var(--accent)'}},pct+'%')
+            ),
+            E('div',{className:'pbar'},
+              E('div',{className:'pfill safe',style:{width:pct+'%'}})
+            ),
+            E('div',{style:{display:'flex',justifyContent:'space-between',fontSize:'11px',color:'var(--muted)',fontFamily:'var(--fm)',marginTop:'4px'}},
+              E('span',null,fmt(g.value)),
+              E('span',null,fmt(g.max))
+            )
+          );
+        })
+      )
+    ),
+
+    E('div',{style:{height:'8px'}})
+  );
+}
+
 /* PWA Install Banner */
 function PwaBanner(props) {
   return E('div', {className:'pwa-banner'},
@@ -1214,18 +1565,20 @@ function MainApp() {
   }
 
   var TABS = [
-    {id:'home',    icon:'\uD83C\uDFE0', label:'In\u00edcio'},
-    {id:'goals',   icon:'\uD83C\uDFAF', label:'Metas'},
-    {id:'history', icon:'\uD83D\uDD0D', label:'Hist\u00f3rico'},
+    {id:'home',      icon:'\uD83C\uDFE0', label:'In\u00edcio'},
+    {id:'dashboard', icon:'\uD83D\uDCCA', label:'Dashboard'},
+    {id:'goals',     icon:'\uD83C\uDFAF', label:'Metas'},
+    {id:'history',   icon:'\uD83D\uDD0D', label:'Hist\u00f3rico'},
   ];
 
   var showFab = tab === 'home' || tab === 'history';
 
   return E('div', {className:'app'},
     E('div', {className:'scroll'},
-      tab==='home'    && E(HomeTab,    {txs:txs, bills:bills, setBills:setBills, setTxs:setTxs, showToast:showToast}),
-      tab==='goals'   && E(GoalsTab,   {goals:goals, setGoals:setGoals, showToast:showToast}),
-      tab==='history' && E(HistoryTab, {txs:txs, setTxs:setTxs, showToast:showToast}),
+      tab==='home'      && E(HomeTab,      {txs:txs, bills:bills, setBills:setBills, setTxs:setTxs, showToast:showToast}),
+      tab==='dashboard' && E(DashboardTab, {txs:txs, bills:bills, goals:goals}),
+      tab==='goals'     && E(GoalsTab,     {goals:goals, setGoals:setGoals, showToast:showToast}),
+      tab==='history'   && E(HistoryTab,   {txs:txs, setTxs:setTxs, showToast:showToast}),
       showPwa && E(PwaBanner, {onInstall:installPwa, onDismiss:dismissPwa})
     ),
     showFab && E('button', {className:'fab', onClick:function(){setAddMod(true);}}, '+'),
