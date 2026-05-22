@@ -727,6 +727,11 @@ function HomeTab(props) {
   var balance   = income - totalExpense;
   var balCls    = balance>0?'pos':balance<0?'neg':'zer';
 
+  function delTx(id) {
+    props.setTxs(function(ts){return ts.filter(function(t){return t.id!==id;});});
+    props.showToast('Transa\u00e7\u00e3o removida');
+  }
+
   var txRows = filtered.filter(function(t){return !t.fromBill;}).sort(function(a,b){return new Date(b.date)-new Date(a.date);});
   var billsSorted = bills.slice().sort(function(a,b){
     var order={overdue:0,soon:1,pending:2,ok:3};
@@ -790,7 +795,7 @@ function HomeTab(props) {
                 E('div',{className:'bill-amt'},'\u2212'+fmt(bill.amount))
               );
             }),
-            txRows.map(function(t){return E(TxRow,{key:t.id,tx:t});})
+            txRows.map(function(t){return E(TxRow,{key:t.id,tx:t,onDel:delTx});})
           )
     ),
     showBillMod && E(ManageBillsModal,{
@@ -806,7 +811,7 @@ function TxRow(props) {
   var t = props.tx;
   var cls = t.type === 'income' ? 'inc' : 'exp';
   var inst = t.installment;
-  return E('div', {className:'tx'},
+  return E('div', {className:'tx', style:{paddingRight: props.onDel ? '60px' : '14px'}},
     E('div', {className:'tx-ico '+cls}, EMOJIS[t.cat]||'\uD83D\uDCB8'),
     E('div', {className:'tx-info'},
       E('div', {className:'tx-desc'}, t.desc),
@@ -817,7 +822,8 @@ function TxRow(props) {
         )
       )
     ),
-    E('div', {className:'tx-amt '+cls}, (t.type==='income'?'+':'\u2212')+fmt(t.amount))
+    E('div', {className:'tx-amt '+cls}, (t.type==='income'?'+':'\u2212')+fmt(t.amount)),
+    props.onDel && E('div',{className:'tx-del', onClick:function(){props.onDel(t.id);}}, '\uD83D\uDDD1')
   );
 }
 
