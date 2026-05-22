@@ -1440,18 +1440,18 @@ function DashboardTab(props) {
   var totalExp   = expense + billsLeft;
   var balance    = income - totalExp;
 
-  /* ── 1. Gastos por categoria ── */
+  /* ── 1. Gastos por categoria — inclui TODAS as contas fixas do mês ── */
   var catMap = {};
   monthTxs.filter(function(t){return t.type==='expense';}).forEach(function(t){
     catMap[t.cat]=(catMap[t.cat]||0)+t.amount;
   });
-  /* add paid bills by cat */
-  bills.filter(billPaid).forEach(function(b){ catMap[b.cat]=(catMap[b.cat]||0)+b.amount; });
+  /* todas as contas fixas (pagas e pendentes) entram no total do mês */
+  bills.forEach(function(b){ catMap[b.cat]=(catMap[b.cat]||0)+b.amount; });
   var catSlices = Object.keys(catMap).map(function(k,i){
     return {label:k, value:catMap[k], color:CHART_COLORS[i%CHART_COLORS.length]};
   }).sort(function(a,b){return b.value-a.value;}).slice(0,8);
 
-  /* ── 2. Últimos 6 meses: saldo ── */
+  /* ── 2. Últimos 6 meses: saldo — cada mês usa seu próprio mk ── */
   var monthPoints = [];
   for(var mi=-5;mi<=0;mi++){
     var mb2=monthBounds(offset+mi);
@@ -1459,18 +1459,20 @@ function DashboardTab(props) {
     var mTxs=txs.filter(function(t){var d=new Date(t.date);return d>=mb2.first&&d<=mb2.last&&!t.fromBill;});
     var mInc=mTxs.filter(function(t){return t.type==='income';}).reduce(function(s,t){return s+t.amount;},0);
     var mExp=mTxs.filter(function(t){return t.type==='expense';}).reduce(function(s,t){return s+t.amount;},0);
-    var mBillsLeft=bills.reduce(function(s,b){return billPaid(b)?s:s+b.amount;},0);
-    var mBal=mInc-mExp-(mi===0?mBillsLeft:0);
+    /* contas fixas do mês: todas contam como saída */
+    var mBills=bills.reduce(function(s,b){return s+b.amount;},0);
+    var mBal=mInc-mExp-mBills;
     monthPoints.push({label:mb2.first.toLocaleDateString('pt-BR',{month:'short'}),value:mBal});
   }
 
-  /* ── 3. Entradas vs Saídas últimos 6 meses ── */
+  /* ── 3. Entradas vs Saídas últimos 6 meses — saídas incluem contas fixas ── */
   var incPoints=[]; var expPoints=[];
+  var mBillsTotal=bills.reduce(function(s,b){return s+b.amount;},0);
   for(var mi2=-5;mi2<=0;mi2++){
     var mb3=monthBounds(offset+mi2);
     var mTxs2=txs.filter(function(t){var d=new Date(t.date);return d>=mb3.first&&d<=mb3.last&&!t.fromBill;});
     var mInc2=mTxs2.filter(function(t){return t.type==='income';}).reduce(function(s,t){return s+t.amount;},0);
-    var mExp2=mTxs2.filter(function(t){return t.type==='expense';}).reduce(function(s,t){return s+t.amount;},0);
+    var mExp2=mTxs2.filter(function(t){return t.type==='expense';}).reduce(function(s,t){return s+t.amount;},0)+mBillsTotal;
     var lbl=mb3.first.toLocaleDateString('pt-BR',{month:'short'});
     incPoints.push({label:lbl,value:mInc2});
     expPoints.push({label:lbl,value:mExp2});
