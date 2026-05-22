@@ -238,6 +238,21 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:var(--f
   var blob = new Blob([JSON.stringify(manifest)], {type:'application/manifest+json'});
   document.getElementById('pwa-manifest').href = URL.createObjectURL(blob);
 
+  /* favicon inline */
+  var faviconSvg = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64"><rect width="64" height="64" rx="14" fill="#0d0d0d"/><text x="32" y="46" font-size="36" text-anchor="middle">💰</text></svg>';
+  var faviconBlob = new Blob([faviconSvg], {type:'image/svg+xml'});
+  var faviconUrl  = URL.createObjectURL(faviconBlob);
+  var faviconLink = document.createElement('link');
+  faviconLink.rel  = 'icon';
+  faviconLink.type = 'image/svg+xml';
+  faviconLink.href = faviconUrl;
+  document.head.appendChild(faviconLink);
+  /* apple touch icon */
+  var appleLink = document.createElement('link');
+  appleLink.rel  = 'apple-touch-icon';
+  appleLink.href = faviconUrl;
+  document.head.appendChild(appleLink);
+
   /* Service worker — cache-first for offline use */
   if ('serviceWorker' in navigator) {
     var swCode = [
@@ -309,6 +324,12 @@ function signIn(email, password) {
   return fetch(SUPA_URL+'/auth/v1/token?grant_type=password', {
     method:'POST', headers:{'apikey':SUPA_KEY,'Content-Type':'application/json'},
     body:JSON.stringify({email:email,password:password})
+  }).then(function(r){return r.json();});
+}
+function refreshToken(refreshTk) {
+  return fetch(SUPA_URL+'/auth/v1/token?grant_type=refresh_token', {
+    method:'POST', headers:{'apikey':SUPA_KEY,'Content-Type':'application/json'},
+    body:JSON.stringify({refresh_token:refreshTk})
   }).then(function(r){return r.json();});
 }
 function signOut(token) {
@@ -1853,7 +1874,13 @@ function LoginScreen(props) {
         setErr('Email ou senha incorretos.');
         return;
       }
-      var session = {token:data.access_token, userId:data.user.id, email:data.user.email, expiresAt:Date.now()+((data.expires_in||3600)*1000)};
+      var session = {
+        token:       data.access_token,
+        refreshToken:data.refresh_token,
+        userId:      data.user.id,
+        email:       data.user.email,
+        expiresAt:   Date.now()+((data.expires_in||3600)*1000)
+      };
       saveSession(session);
       props.onLogin(session);
     }).catch(function(){
@@ -2043,6 +2070,34 @@ function App() {
 
   function handleLogin(s) { setSession(s); }
   function handleLogout() { setSession(null); }
+
+  /* auto-refresh token: check every 5 min, refresh if expires in <10 min */
+  useEffect(function(){
+    if (!session||!session.token) return;
+    function tryRefresh() {
+      if (!session.refreshToken) return;
+      var expiresIn = session.expiresAt - Date.now();
+      if (expiresIn < 10*60*1000) { /* less than 10 min left */
+        refreshToken(session.refreshToken).then(function(data){
+          if (data.access_token) {
+            var updated = Object.assign({},session,{
+              token: data.access_token,
+              refreshToken: data.refresh_token,
+              expiresAt: Date.now()+((data.expires_in||3600)*1000)
+            });
+            saveSession(updated);
+            setSession(updated);
+          } else {
+            /* refresh failed, force re-login */
+            clearSession(); setSession(null);
+          }
+        }).catch(function(){});
+      }
+    }
+    tryRefresh();
+    var interval = setInterval(tryRefresh, 5*60*1000);
+    return function(){ clearInterval(interval); };
+  }, [session&&session.token]);
 
   if (!session || !session.token) return E(LoginScreen, {onLogin:handleLogin});
   return E(MainApp, {session:session, onLogout:handleLogout});
