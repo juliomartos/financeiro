@@ -205,6 +205,14 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:var(--f
 .vr-config{display:flex;align-items:center;justify-content:space-between;padding:0 20px 16px}
 .vr-config-lbl{font-size:12px;color:var(--muted);font-weight:600}
 .vr-config-val{font-size:13px;font-weight:700;font-family:var(--fm);color:var(--text)}
+/* login screen */
+.login-wrap{height:100vh;max-width:430px;margin:0 auto;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:40px 32px;background:var(--bg)}
+.login-logo{font-size:52px;margin-bottom:12px}
+.login-title{font-size:26px;font-weight:800;letter-spacing:-.02em;margin-bottom:6px}
+.login-sub{font-size:13px;color:var(--muted);margin-bottom:40px;text-align:center}
+.login-form{width:100%;max-width:320px}
+.login-err{background:var(--red-dim);border:1px solid var(--red);border-radius:var(--rs);padding:10px 14px;font-size:13px;color:var(--red);font-weight:600;margin-bottom:14px;text-align:center}
+.login-footer{margin-top:20px;font-size:11px;color:var(--dim);text-align:center;line-height:1.6}
 </style>
 </head>
 <body>
@@ -296,82 +304,90 @@ function supaFetch(path, opts) {
   return fetch(SUPA_URL+path, Object.assign({headers:SUPA_HDR}, opts||{}));
 }
 
-/* ── Supabase sync helpers ── */
+/* ── Auth ── */
+function signIn(email, password) {
+  return fetch(SUPA_URL+'/auth/v1/token?grant_type=password', {
+    method:'POST', headers:{'apikey':SUPA_KEY,'Content-Type':'application/json'},
+    body:JSON.stringify({email:email,password:password})
+  }).then(function(r){return r.json();});
+}
+function signOut(token) {
+  return fetch(SUPA_URL+'/auth/v1/logout', {
+    method:'POST', headers:{'apikey':SUPA_KEY,'Authorization':'Bearer '+token}
+  });
+}
+function getSession() {
+  try { return JSON.parse(localStorage.getItem('fin_session')||'null'); } catch{return null;}
+}
+function saveSession(s) { localStorage.setItem('fin_session',JSON.stringify(s)); }
+function clearSession() { localStorage.removeItem('fin_session'); }
+
+function authHdr(token) {
+  return {'apikey':SUPA_KEY,'Authorization':'Bearer '+token,'Content-Type':'application/json'};
+}
+function supaAuth(token, path, opts) {
+  return fetch(SUPA_URL+path, Object.assign({headers:authHdr(token)}, opts||{}));
+}
 var _syncTimer = {};
 function debounceSync(key, fn, ms) {
   clearTimeout(_syncTimer[key]);
   _syncTimer[key] = setTimeout(fn, ms||1200);
 }
 
-/* transactions */
-function syncTxsUp(txs) {
-  if (!txs||!txs.length) return supaFetch('/rest/v1/transactions',{method:'DELETE',headers:Object.assign({},SUPA_HDR,{'Accept':'application/json'})});
-  var rows = txs.map(function(t){return {
-    id:t.id, type:t.type, description:t.desc, amount:t.amount,
-    cat:t.cat||null, card_id:t.cardId||null, date:t.date,
-    installment:t.installment||null, from_bill:t.fromBill||null
-  };});
-  return supaFetch('/rest/v1/transactions?on_conflict=id',{method:'POST',headers:Object.assign({},SUPA_HDR,{'Prefer':'resolution=merge-duplicates,return=minimal'}),body:JSON.stringify(rows)});
+function syncTxsUp(token, userId, txs) {
+  var rows = txs.map(function(t){return {id:t.id,user_id:userId,type:t.type,description:t.desc,amount:t.amount,cat:t.cat||null,card_id:t.cardId||null,date:t.date,installment:t.installment||null,from_bill:t.fromBill||null};});
+  if (!rows.length) return supaAuth(token,'/rest/v1/transactions?user_id=eq.'+userId,{method:'DELETE'});
+  return supaAuth(token,'/rest/v1/transactions?on_conflict=id',{method:'POST',headers:Object.assign(authHdr(token),{'Prefer':'resolution=merge-duplicates,return=minimal'}),body:JSON.stringify(rows)});
 }
-function fetchTxs() {
-  return supaFetch('/rest/v1/transactions?select=*&order=date.desc').then(function(r){return r.json();}).then(function(rows){
-    return rows.map(function(r){return {id:r.id,type:r.type,desc:r.description,amount:parseFloat(r.amount),
-      cat:r.cat,cardId:r.card_id,date:r.date,installment:r.installment,fromBill:r.from_bill};});
-  });
+function fetchTxs(token, userId) {
+  return supaAuth(token,'/rest/v1/transactions?user_id=eq.'+userId+'&select=*&order=date.desc')
+    .then(function(r){return r.json();}).then(function(rows){
+      if(!Array.isArray(rows)) return [];
+      return rows.map(function(r){return {id:r.id,type:r.type,desc:r.description,amount:parseFloat(r.amount),cat:r.cat,cardId:r.card_id,date:r.date,installment:r.installment,fromBill:r.from_bill};});
+    });
 }
-
-/* bills */
-function syncBillsUp(bills) {
-  return supaFetch('/rest/v1/bills?on_conflict=id',{method:'POST',
-    headers:Object.assign({},SUPA_HDR,{'Prefer':'resolution=merge-duplicates,return=minimal'}),
-    body:JSON.stringify(bills.map(function(b){return {id:b.id,name:b.name,amount:b.amount,cat:b.cat||null,
-      fixed:b.fixed,day:b.day||null,card_id:b.cardId||null,payments:b.payments||{}};}))
-  });
-}
-function deleteBillUp(id) {
-  return supaFetch('/rest/v1/bills?id=eq.'+id,{method:'DELETE',headers:Object.assign({},SUPA_HDR,{'Accept':'application/json'})});
-}
-function fetchBills() {
-  return supaFetch('/rest/v1/bills?select=*').then(function(r){return r.json();}).then(function(rows){
-    return rows.map(function(r){return {id:r.id,name:r.name,amount:parseFloat(r.amount),cat:r.cat,
-      fixed:r.fixed,day:r.day,cardId:r.card_id,payments:r.payments||{}};});
-  });
+function deleteTxUp(token, id) {
+  return supaAuth(token,'/rest/v1/transactions?id=eq.'+id,{method:'DELETE'});
 }
 
-/* goals */
-function syncGoalsUp(goals) {
-  return supaFetch('/rest/v1/goals?on_conflict=id',{method:'POST',
-    headers:Object.assign({},SUPA_HDR,{'Prefer':'resolution=merge-duplicates,return=minimal'}),
-    body:JSON.stringify(goals.map(function(g){return {id:g.id,name:g.name,target:g.target,saved:g.saved,emoji:g.emoji};}))
-  });
+function syncBillsUp(token, userId, bills) {
+  var rows = bills.map(function(b){return {id:b.id,user_id:userId,name:b.name,amount:b.amount,cat:b.cat||null,fixed:b.fixed,day:b.day||null,card_id:b.cardId||null,payments:b.payments||{}};});
+  if (!rows.length) return supaAuth(token,'/rest/v1/bills?user_id=eq.'+userId,{method:'DELETE'});
+  return supaAuth(token,'/rest/v1/bills?on_conflict=id',{method:'POST',headers:Object.assign(authHdr(token),{'Prefer':'resolution=merge-duplicates,return=minimal'}),body:JSON.stringify(rows)});
 }
-function deleteGoalUp(id) {
-  return supaFetch('/rest/v1/goals?id=eq.'+id,{method:'DELETE',headers:Object.assign({},SUPA_HDR,{'Accept':'application/json'})});
-}
-function fetchGoals() {
-  return supaFetch('/rest/v1/goals?select=*').then(function(r){return r.json();}).then(function(rows){
-    return rows.map(function(r){return {id:r.id,name:r.name,target:parseFloat(r.target),saved:parseFloat(r.saved),emoji:r.emoji};});
-  });
+function fetchBills(token, userId) {
+  return supaAuth(token,'/rest/v1/bills?user_id=eq.'+userId+'&select=*')
+    .then(function(r){return r.json();}).then(function(rows){
+      if(!Array.isArray(rows)) return [];
+      return rows.map(function(r){return {id:r.id,name:r.name,amount:parseFloat(r.amount),cat:r.cat,fixed:r.fixed,day:r.day,cardId:r.card_id,payments:r.payments||{}};});
+    });
 }
 
-/* vr */
-function syncVrUp(vr) {
-  return supaFetch('/rest/v1/vr_data?id=eq.1',{method:'PATCH',
-    headers:Object.assign({},SUPA_HDR,{'Prefer':'return=minimal'}),
-    body:JSON.stringify({credits:vr.credits||[],spends:vr.spends||[],alert_pct:vr.alertPct||20,updated_at:new Date().toISOString()})
-  });
+function syncGoalsUp(token, userId, goals) {
+  var rows = goals.map(function(g){return {id:g.id,user_id:userId,name:g.name,target:g.target,saved:g.saved,emoji:g.emoji};});
+  if (!rows.length) return supaAuth(token,'/rest/v1/goals?user_id=eq.'+userId,{method:'DELETE'});
+  return supaAuth(token,'/rest/v1/goals?on_conflict=id',{method:'POST',headers:Object.assign(authHdr(token),{'Prefer':'resolution=merge-duplicates,return=minimal'}),body:JSON.stringify(rows)});
 }
-function fetchVr() {
-  return supaFetch('/rest/v1/vr_data?id=eq.1&select=*').then(function(r){return r.json();}).then(function(rows){
-    if (!rows||!rows.length) return {credits:[],spends:[],alertPct:20};
-    var r=rows[0];
-    return {credits:r.credits||[],spends:r.spends||[],alertPct:r.alert_pct||20};
-  });
+function fetchGoals(token, userId) {
+  return supaAuth(token,'/rest/v1/goals?user_id=eq.'+userId+'&select=*')
+    .then(function(r){return r.json();}).then(function(rows){
+      if(!Array.isArray(rows)) return [];
+      return rows.map(function(r){return {id:r.id,name:r.name,target:parseFloat(r.target),saved:parseFloat(r.saved),emoji:r.emoji};});
+    });
 }
 
-/* delete tx from supabase */
-function deleteTxUp(id) {
-  return supaFetch('/rest/v1/transactions?id=eq.'+id,{method:'DELETE',headers:Object.assign({},SUPA_HDR,{'Accept':'application/json'})});
+function syncVrUp(token, userId, vr) {
+  return supaAuth(token,'/rest/v1/vr_data',{method:'POST',
+    headers:Object.assign(authHdr(token),{'Prefer':'resolution=merge-duplicates,return=minimal'}),
+    body:JSON.stringify({user_id:userId,credits:vr.credits||[],spends:vr.spends||[],alert_pct:vr.alertPct||20,updated_at:new Date().toISOString()})
+  });
+}
+function fetchVr(token, userId) {
+  return supaAuth(token,'/rest/v1/vr_data?user_id=eq.'+userId+'&select=*')
+    .then(function(r){return r.json();}).then(function(rows){
+      if(!Array.isArray(rows)||!rows.length) return {credits:[],spends:[],alertPct:20};
+      var r=rows[0]; return {credits:r.credits||[],spends:r.spends||[],alertPct:r.alert_pct||20};
+    });
 }
 function fmt(v) {
   return new Intl.NumberFormat('pt-BR',{style:'currency',currency:'BRL'}).format(v);
@@ -1821,11 +1837,67 @@ function PwaBanner(props) {
   );
 }
 
-function MainApp() {
-  var txsS    = useLS('fin_txs',   []); var txs    = txsS[0]; var setTxsRaw    = txsS[1];
-  var goalsS  = useLS('fin_goals', []); var goals  = goalsS[0]; var setGoalsRaw  = goalsS[1];
-  var billsS  = useLS('fin_bills', []); var bills  = billsS[0]; var setBillsRaw  = billsS[1];
-  var vrS     = useLS('fin_vr', {credits:[],spends:[],alertPct:20}); var vr = vrS[0]; var setVrRaw = vrS[1];
+/* ── Login Screen ── */
+function LoginScreen(props) {
+  var emailS = useState(''); var email = emailS[0]; var setEmail = emailS[1];
+  var passS  = useState(''); var pass  = passS[0];  var setPass  = passS[1];
+  var errS   = useState(''); var err   = errS[0];   var setErr   = errS[1];
+  var loadS  = useState(false); var load = loadS[0]; var setLoad = loadS[1];
+
+  function doLogin() {
+    if (!email.trim()||!pass) return;
+    setLoad(true); setErr('');
+    signIn(email.trim(), pass).then(function(data){
+      setLoad(false);
+      if (data.error||!data.access_token) {
+        setErr('Email ou senha incorretos.');
+        return;
+      }
+      var session = {token:data.access_token, userId:data.user.id, email:data.user.email, expiresAt:Date.now()+((data.expires_in||3600)*1000)};
+      saveSession(session);
+      props.onLogin(session);
+    }).catch(function(){
+      setLoad(false); setErr('Erro de conex\u00e3o. Tente novamente.');
+    });
+  }
+
+  function onKey(ev){ if(ev.key==='Enter') doLogin(); }
+
+  return E('div',{className:'login-wrap'},
+    E('div',{className:'login-logo'},'\uD83D\uDCB0'),
+    E('div',{className:'login-title'},'Controle Financeiro'),
+    E('div',{className:'login-sub'},'Fa\u00e7a login para acessar'),
+    E('div',{className:'login-form'},
+      err && E('div',{className:'login-err'},err),
+      E('div',{className:'fg'},
+        E('label',{className:'fl'},'Email'),
+        E('input',{className:'fi',type:'email',inputMode:'email',placeholder:'seu@email.com',
+          value:email, onChange:function(ev){setEmail(ev.target.value);}, onKeyDown:onKey})
+      ),
+      E('div',{className:'fg'},
+        E('label',{className:'fl'},'Senha'),
+        E('input',{className:'fi',type:'password',placeholder:'\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022',
+          value:pass, onChange:function(ev){setPass(ev.target.value);}, onKeyDown:onKey})
+      ),
+      E('button',{className:'sbtn',onClick:doLogin,disabled:load},
+        load?'Entrando...':'Entrar')
+    ),
+    E('div',{className:'login-footer'},
+      'N\u00e3o tem conta? Pe\u00e7a ao administrador.'
+    )
+  );
+}
+
+/* ── Main App ── */
+function MainApp(props) {
+  var session = props.session;
+  var token   = session.token;
+  var userId  = session.userId;
+
+  var txsS    = useLS('fin_txs_'+userId,   []); var txs    = txsS[0]; var setTxsRaw    = txsS[1];
+  var goalsS  = useLS('fin_goals_'+userId, []); var goals  = goalsS[0]; var setGoalsRaw  = goalsS[1];
+  var billsS  = useLS('fin_bills_'+userId, []); var bills  = billsS[0]; var setBillsRaw  = billsS[1];
+  var vrS     = useLS('fin_vr_'+userId, {credits:[],spends:[],alertPct:20}); var vr = vrS[0]; var setVrRaw = vrS[1];
   var cardsS  = useLS('fin_cards', []); var cards  = cardsS[0];
   var tabS    = useState('home');       var tab    = tabS[0]; var setTab    = tabS[1];
   var addS    = useState(false);        var addMod = addS[0]; var setAddMod = addS[1];
@@ -1837,7 +1909,7 @@ function MainApp() {
   /* ── load from Supabase on mount ── */
   useEffect(function(){
     setSyncSt('loading');
-    Promise.all([fetchTxs(), fetchBills(), fetchGoals(), fetchVr()])
+    Promise.all([fetchTxs(token,userId), fetchBills(token,userId), fetchGoals(token,userId), fetchVr(token,userId)])
       .then(function(results){
         setTxsRaw(results[0]);
         setBillsRaw(results[1]);
@@ -1852,28 +1924,28 @@ function MainApp() {
   function setTxs(updater) {
     setTxsRaw(function(prev){
       var next = typeof updater==='function'?updater(prev):updater;
-      debounceSync('txs', function(){ syncTxsUp(next); }, 800);
+      debounceSync('txs', function(){ syncTxsUp(token,userId,next); }, 800);
       return next;
     });
   }
   function setBills(updater) {
     setBillsRaw(function(prev){
       var next = typeof updater==='function'?updater(prev):updater;
-      debounceSync('bills', function(){ syncBillsUp(next); }, 800);
+      debounceSync('bills', function(){ syncBillsUp(token,userId,next); }, 800);
       return next;
     });
   }
   function setGoals(updater) {
     setGoalsRaw(function(prev){
       var next = typeof updater==='function'?updater(prev):updater;
-      debounceSync('goals', function(){ syncGoalsUp(next); }, 800);
+      debounceSync('goals', function(){ syncGoalsUp(token,userId,next); }, 800);
       return next;
     });
   }
   function setVr(updater) {
     setVrRaw(function(prev){
       var next = typeof updater==='function'?updater(prev):updater;
-      debounceSync('vr', function(){ syncVrUp(next); }, 800);
+      debounceSync('vr', function(){ syncVrUp(token,userId,next); }, 800);
       return next;
     });
   }
@@ -1914,7 +1986,14 @@ function MainApp() {
   }
 
   var syncIcon = syncSt==='loading' ? '\u23F3' : syncSt==='err' ? '\uD83D\uDEAB' : '\u2601\uFE0F';
-  var syncTitle = syncSt==='loading'?'Sincronizando...':syncSt==='err'?'Sem conexão — dados locais':' Sincronizado';
+  var syncTitle = syncSt==='loading'?'Sincronizando...':syncSt==='err'?'Sem conex\u00e3o':'\u2714 Sincronizado';
+
+  function doLogout() {
+    signOut(token).finally(function(){
+      clearSession();
+      props.onLogout();
+    });
+  }
 
   var TABS = [
     {id:'home',      icon:'\uD83C\uDFE0', label:'In\u00edcio'},
@@ -1927,11 +2006,13 @@ function MainApp() {
   var showFab = tab === 'home' || tab === 'history';
 
   return E('div', {className:'app'},
-    /* sync status bar */
-    E('div',{style:{display:'flex',alignItems:'center',justifyContent:'flex-end',gap:'5px',
+    E('div',{style:{display:'flex',alignItems:'center',justifyContent:'space-between',
       padding:'6px 16px 0',fontSize:'10px',color:'var(--dim)',fontFamily:'var(--fm)'}},
-      E('span',{title:syncTitle},syncIcon),
-      E('span',null,syncTitle)
+      E('span',{style:{color:'var(--dim)'}}, session.email),
+      E('div',{style:{display:'flex',alignItems:'center',gap:'8px'}},
+        E('span',{title:syncTitle},syncIcon+' '+syncTitle),
+        E('button',{onClick:doLogout,style:{background:'none',border:'none',color:'var(--dim)',cursor:'pointer',fontSize:'10px',fontFamily:'var(--fm)',padding:0}},'sair')
+      )
     ),
     E('div', {className:'scroll'},
       tab==='home'      && E(HomeTab,      {txs:txs, bills:bills, setBills:setBills, setTxs:setTxs, showToast:showToast}),
@@ -1955,12 +2036,16 @@ function MainApp() {
   );
 }
 
-/* Root — PIN gate, then MainApp */
+/* ── Root ── */
 function App() {
-  var unlS = useState(function(){return !!sessionStorage.getItem(SES_KEY);});
-  var unlocked = unlS[0]; var setUnlocked = unlS[1];
-  if (!unlocked) return E(PinScreen, {onUnlock:function(){setUnlocked(true);}});
-  return E(MainApp, null);
+  var sessS = useState(function(){ return getSession(); });
+  var session = sessS[0]; var setSession = sessS[1];
+
+  function handleLogin(s) { setSession(s); }
+  function handleLogout() { setSession(null); }
+
+  if (!session || !session.token) return E(LoginScreen, {onLogin:handleLogin});
+  return E(MainApp, {session:session, onLogout:handleLogout});
 }
 
 ReactDOM.createRoot(document.getElementById('root')).render(E(App, null));
