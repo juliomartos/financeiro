@@ -288,6 +288,91 @@ const EMOJIS   = {
   'Presente':'🎁','Outros':'📦'
 };
 
+const SUPA_URL = 'https://rmvinszbpnpzkaerehnc.supabase.co';
+const SUPA_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InJtdmluc3picG5wemthZXJlaG5jIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzk0MDM4MDgsImV4cCI6MjA5NDk3OTgwOH0.e4lF-bGXgh4l73lvxN_j4wj7r5P2j92hYZKlWLZapVY';
+const SUPA_HDR = {'apikey':SUPA_KEY,'Authorization':'Bearer '+SUPA_KEY,'Content-Type':'application/json','Prefer':'return=representation'};
+
+function supaFetch(path, opts) {
+  return fetch(SUPA_URL+path, Object.assign({headers:SUPA_HDR}, opts||{}));
+}
+
+/* ── Supabase sync helpers ── */
+var _syncTimer = {};
+function debounceSync(key, fn, ms) {
+  clearTimeout(_syncTimer[key]);
+  _syncTimer[key] = setTimeout(fn, ms||1200);
+}
+
+/* transactions */
+function syncTxsUp(txs) {
+  if (!txs||!txs.length) return supaFetch('/rest/v1/transactions',{method:'DELETE',headers:Object.assign({},SUPA_HDR,{'Accept':'application/json'})});
+  var rows = txs.map(function(t){return {
+    id:t.id, type:t.type, description:t.desc, amount:t.amount,
+    cat:t.cat||null, card_id:t.cardId||null, date:t.date,
+    installment:t.installment||null, from_bill:t.fromBill||null
+  };});
+  return supaFetch('/rest/v1/transactions?on_conflict=id',{method:'POST',headers:Object.assign({},SUPA_HDR,{'Prefer':'resolution=merge-duplicates,return=minimal'}),body:JSON.stringify(rows)});
+}
+function fetchTxs() {
+  return supaFetch('/rest/v1/transactions?select=*&order=date.desc').then(function(r){return r.json();}).then(function(rows){
+    return rows.map(function(r){return {id:r.id,type:r.type,desc:r.description,amount:parseFloat(r.amount),
+      cat:r.cat,cardId:r.card_id,date:r.date,installment:r.installment,fromBill:r.from_bill};});
+  });
+}
+
+/* bills */
+function syncBillsUp(bills) {
+  return supaFetch('/rest/v1/bills?on_conflict=id',{method:'POST',
+    headers:Object.assign({},SUPA_HDR,{'Prefer':'resolution=merge-duplicates,return=minimal'}),
+    body:JSON.stringify(bills.map(function(b){return {id:b.id,name:b.name,amount:b.amount,cat:b.cat||null,
+      fixed:b.fixed,day:b.day||null,card_id:b.cardId||null,payments:b.payments||{}};}))
+  });
+}
+function deleteBillUp(id) {
+  return supaFetch('/rest/v1/bills?id=eq.'+id,{method:'DELETE',headers:Object.assign({},SUPA_HDR,{'Accept':'application/json'})});
+}
+function fetchBills() {
+  return supaFetch('/rest/v1/bills?select=*').then(function(r){return r.json();}).then(function(rows){
+    return rows.map(function(r){return {id:r.id,name:r.name,amount:parseFloat(r.amount),cat:r.cat,
+      fixed:r.fixed,day:r.day,cardId:r.card_id,payments:r.payments||{}};});
+  });
+}
+
+/* goals */
+function syncGoalsUp(goals) {
+  return supaFetch('/rest/v1/goals?on_conflict=id',{method:'POST',
+    headers:Object.assign({},SUPA_HDR,{'Prefer':'resolution=merge-duplicates,return=minimal'}),
+    body:JSON.stringify(goals.map(function(g){return {id:g.id,name:g.name,target:g.target,saved:g.saved,emoji:g.emoji};}))
+  });
+}
+function deleteGoalUp(id) {
+  return supaFetch('/rest/v1/goals?id=eq.'+id,{method:'DELETE',headers:Object.assign({},SUPA_HDR,{'Accept':'application/json'})});
+}
+function fetchGoals() {
+  return supaFetch('/rest/v1/goals?select=*').then(function(r){return r.json();}).then(function(rows){
+    return rows.map(function(r){return {id:r.id,name:r.name,target:parseFloat(r.target),saved:parseFloat(r.saved),emoji:r.emoji};});
+  });
+}
+
+/* vr */
+function syncVrUp(vr) {
+  return supaFetch('/rest/v1/vr_data?id=eq.1',{method:'PATCH',
+    headers:Object.assign({},SUPA_HDR,{'Prefer':'return=minimal'}),
+    body:JSON.stringify({credits:vr.credits||[],spends:vr.spends||[],alert_pct:vr.alertPct||20,updated_at:new Date().toISOString()})
+  });
+}
+function fetchVr() {
+  return supaFetch('/rest/v1/vr_data?id=eq.1&select=*').then(function(r){return r.json();}).then(function(rows){
+    if (!rows||!rows.length) return {credits:[],spends:[],alertPct:20};
+    var r=rows[0];
+    return {credits:r.credits||[],spends:r.spends||[],alertPct:r.alert_pct||20};
+  });
+}
+
+/* delete tx from supabase */
+function deleteTxUp(id) {
+  return supaFetch('/rest/v1/transactions?id=eq.'+id,{method:'DELETE',headers:Object.assign({},SUPA_HDR,{'Accept':'application/json'})});
+}
 function fmt(v) {
   return new Intl.NumberFormat('pt-BR',{style:'currency',currency:'BRL'}).format(v);
 }
@@ -1691,7 +1776,7 @@ function VRTab(props) {
         E('div',{className:'fg'},
           E('label',{className:'fl'},'Adicionar cr\u00e9dito (R$)'),
           E('div',{style:{display:'flex',gap:'8px'}},
-            E('input',{className:'fi',type:'number',inputMode:'decimal',placeholder:'1650,00',value:newCredit,
+            E('input',{className:'fi',type:'number',inputMode:'decimal',placeholder:'1600,00',value:newCredit,
               onChange:function(ev){setNewCredit(ev.target.value);},style:{flex:1}}),
             E('button',{className:'sbtn',style:{width:'auto',padding:'10px 16px',marginTop:0},onClick:addCredit},'+ Cr\u00e9dito')
           )
@@ -1735,16 +1820,61 @@ function PwaBanner(props) {
 }
 
 function MainApp() {
-  var txsS    = useLS('fin_txs',   []); var txs    = txsS[0]; var setTxs    = txsS[1];
-  var goalsS  = useLS('fin_goals', []); var goals  = goalsS[0]; var setGoals  = goalsS[1];
-  var billsS  = useLS('fin_bills', []); var bills  = billsS[0]; var setBills  = billsS[1];
-  var vrS     = useLS('fin_vr', {credits:[],spends:[],alertPct:20}); var vr = vrS[0]; var setVr = vrS[1];
+  var txsS    = useLS('fin_txs',   []); var txs    = txsS[0]; var setTxsRaw    = txsS[1];
+  var goalsS  = useLS('fin_goals', []); var goals  = goalsS[0]; var setGoalsRaw  = goalsS[1];
+  var billsS  = useLS('fin_bills', []); var bills  = billsS[0]; var setBillsRaw  = billsS[1];
+  var vrS     = useLS('fin_vr', {credits:[],spends:[],alertPct:20}); var vr = vrS[0]; var setVrRaw = vrS[1];
   var cardsS  = useLS('fin_cards', []); var cards  = cardsS[0];
   var tabS    = useState('home');       var tab    = tabS[0]; var setTab    = tabS[1];
   var addS    = useState(false);        var addMod = addS[0]; var setAddMod = addS[1];
   var toastS  = useState({msg:'',show:false}); var toast = toastS[0]; var setToast = toastS[1];
   var pwaS    = useState(false);        var showPwa = pwaS[0]; var setShowPwa = pwaS[1];
   var pwaDismS= useState(false);        var pwaDism = pwaDismS[0]; var setPwaDism = pwaDismS[1];
+  var syncStS = useState('idle');       var syncSt = syncStS[0]; var setSyncSt = syncStS[1];
+
+  /* ── load from Supabase on mount ── */
+  useEffect(function(){
+    setSyncSt('loading');
+    Promise.all([fetchTxs(), fetchBills(), fetchGoals(), fetchVr()])
+      .then(function(results){
+        setTxsRaw(results[0]);
+        setBillsRaw(results[1]);
+        setGoalsRaw(results[2]);
+        setVrRaw(results[3]);
+        setSyncSt('ok');
+      })
+      .catch(function(){ setSyncSt('err'); });
+  }, []);
+
+  /* ── wrapped setters that also sync up ── */
+  function setTxs(updater) {
+    setTxsRaw(function(prev){
+      var next = typeof updater==='function'?updater(prev):updater;
+      debounceSync('txs', function(){ syncTxsUp(next); }, 800);
+      return next;
+    });
+  }
+  function setBills(updater) {
+    setBillsRaw(function(prev){
+      var next = typeof updater==='function'?updater(prev):updater;
+      debounceSync('bills', function(){ syncBillsUp(next); }, 800);
+      return next;
+    });
+  }
+  function setGoals(updater) {
+    setGoalsRaw(function(prev){
+      var next = typeof updater==='function'?updater(prev):updater;
+      debounceSync('goals', function(){ syncGoalsUp(next); }, 800);
+      return next;
+    });
+  }
+  function setVr(updater) {
+    setVrRaw(function(prev){
+      var next = typeof updater==='function'?updater(prev):updater;
+      debounceSync('vr', function(){ syncVrUp(next); }, 800);
+      return next;
+    });
+  }
 
   useEffect(function() {
     /* show banner after 3s if prompt is available and not dismissed */
@@ -1781,6 +1911,9 @@ function MainApp() {
     showToast(tx.type==='income' ? 'Receita adicionada! \uD83D\uDC9A' : 'Despesa registrada!');
   }
 
+  var syncIcon = syncSt==='loading' ? '\u23F3' : syncSt==='err' ? '\uD83D\uDEAB' : '\u2601\uFE0F';
+  var syncTitle = syncSt==='loading'?'Sincronizando...':syncSt==='err'?'Sem conexão — dados locais':' Sincronizado';
+
   var TABS = [
     {id:'home',      icon:'\uD83C\uDFE0', label:'In\u00edcio'},
     {id:'dashboard', icon:'\uD83D\uDCCA', label:'Dashboard'},
@@ -1792,6 +1925,12 @@ function MainApp() {
   var showFab = tab === 'home' || tab === 'history';
 
   return E('div', {className:'app'},
+    /* sync status bar */
+    E('div',{style:{display:'flex',alignItems:'center',justifyContent:'flex-end',gap:'5px',
+      padding:'6px 16px 0',fontSize:'10px',color:'var(--dim)',fontFamily:'var(--fm)'}},
+      E('span',{title:syncTitle},syncIcon),
+      E('span',null,syncTitle)
+    ),
     E('div', {className:'scroll'},
       tab==='home'      && E(HomeTab,      {txs:txs, bills:bills, setBills:setBills, setTxs:setTxs, showToast:showToast}),
       tab==='dashboard' && E(DashboardTab, {txs:txs, bills:bills, goals:goals}),
