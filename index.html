@@ -1225,6 +1225,16 @@ function HistoryTab(props) {
           setImporting(false);
           return;
         }
+        /* tag with group info if in group context */
+        if (props.groupId) {
+          imported = imported.map(function(t){
+            return Object.assign({},t,{
+              groupId:props.groupId,
+              launchedBy:props.userId,
+              launchedByName:props.displayName||''
+            });
+          });
+        }
         /* merge avoiding duplicates by desc+amount+date */
         props.setTxs(function(existing){
           var merged = existing.slice();
@@ -1236,7 +1246,8 @@ function HistoryTab(props) {
             if (!dup) merged.push(imp);
           });
           return merged;
-        });        setImportMsg(imported.length+' registros importados'+(errs?' ('+errs+' ignorados)':'')+'!');
+        });
+        setImportMsg(imported.length+' registros importados'+(errs?' ('+errs+' ignorados)':'')+'!');
         props.showToast(imported.length+' registros importados \u2705');
         setTimeout(function(){setImporting(false);setImportMsg('');},3000);
       } catch(err) {
@@ -2342,21 +2353,34 @@ function MainApp(props) {
   var showFab = (tab==='home'||tab==='history') ;
   /* current txs based on context */
   var activeTxs = ctx==='personal' ? txs : (grpTxs[ctx]||[]);
-  var setActiveTxs = ctx==='personal' ? setTxs : function(updater){
-    setGrpTxs(function(prev){
-      var n = Object.assign({},prev);
-      var cur = n[ctx]||[];
-      var next = typeof updater==='function'?updater(cur):updater;
-      n[ctx] = next;
-      /* sync all group txs to Supabase */
-      debounceSync('grptxs_'+ctx, function(){
-        next.forEach(function(tx){
-          syncGroupTxUp(token,userId,myDisplayName,ctx,tx);
-        });
-      }, 1200);
-      return n;
-    });
-  };
+
+  function setActiveTxs(updater) {
+    if (ctx==='personal') {
+      setTxs(updater);
+    } else {
+      var groupId = ctx;
+      setGrpTxs(function(prev){
+        var n   = Object.assign({},prev);
+        var cur = n[groupId]||[];
+        var next = typeof updater==='function'?updater(cur):updater;
+        n[groupId] = next;
+        /* find added vs removed by diffing */
+        var nextIds = {};
+        next.forEach(function(t){ nextIds[t.id]=true; });
+        var curIds  = {};
+        cur.forEach(function(t){ curIds[t.id]=true; });
+        /* sync new/updated txs */
+        var added = next.filter(function(t){ return !curIds[t.id]; });
+        debounceSync('grpadd_'+groupId, function(){
+          added.forEach(function(tx){ syncGroupTxUp(token,userId,myDisplayName,groupId,tx); });
+        }, 800);
+        /* delete removed txs */
+        var removed = cur.filter(function(t){ return !nextIds[t.id]; });
+        removed.forEach(function(t){ deleteTxUp(token,t.id); });
+        return n;
+      });
+    }
+  }
 
   return E('div', {className:'app'},
     /* top bar */
@@ -2382,7 +2406,8 @@ function MainApp(props) {
       tab==='dashboard' && E(DashboardTab, {txs:activeTxs, bills:ctx==='personal'?bills:[], goals:ctx==='personal'?goals:[]}),
       tab==='vr'        && E(VRTab,        {vr:vr, setVr:setVr, showToast:showToast}),
       tab==='goals'     && E(GoalsTab,     {goals:goals, setGoals:setGoals, showToast:showToast}),
-      tab==='history'   && E(HistoryTab,   {txs:activeTxs, setTxs:setActiveTxs, showToast:showToast}),
+      tab==='history'   && E(HistoryTab,   {txs:activeTxs, setTxs:setActiveTxs, showToast:showToast,
+        groupId:ctx!=='personal'?ctx:null, userId:userId, displayName:myDisplayName}),
       tab==='groups'    && E(GroupsTab,    {session:session, groups:groups, setGroups:setGroups, showToast:showToast}),
       showPwa && E(PwaBanner, {onInstall:installPwa, onDismiss:dismissPwa})
     ),
