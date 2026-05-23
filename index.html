@@ -213,6 +213,21 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:var(--f
 .login-form{width:100%;max-width:320px}
 .login-err{background:var(--red-dim);border:1px solid var(--red);border-radius:var(--rs);padding:10px 14px;font-size:13px;color:var(--red);font-weight:600;margin-bottom:14px;text-align:center}
 .login-footer{margin-top:20px;font-size:11px;color:var(--dim);text-align:center;line-height:1.6}
+/* groups */
+.ctx-bar{display:flex;align-items:center;gap:8px;padding:8px 16px;background:var(--surface);border-bottom:1px solid var(--border);overflow-x:auto;scrollbar-width:none}
+.ctx-bar::-webkit-scrollbar{display:none}
+.ctx-pill{padding:5px 14px;border-radius:20px;border:1px solid var(--border2);background:none;color:var(--muted);font-family:var(--fd);font-size:12px;font-weight:600;cursor:pointer;white-space:nowrap;flex-shrink:0;transition:all .15s}
+.ctx-pill.on{background:var(--accent);border-color:var(--accent);color:#000}
+.ctx-pill.grp{border-color:var(--blue);color:var(--blue)}
+.ctx-pill.grp.on{background:var(--blue);color:#fff}
+.by-badge{font-size:10px;font-weight:600;padding:2px 6px;border-radius:6px;background:var(--blue-dim);color:var(--blue);margin-left:4px;flex-shrink:0}
+.group-card{background:var(--surface);border:1px solid var(--border);border-radius:var(--r);padding:16px;margin-bottom:10px}
+.group-card-hd{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:10px}
+.group-name{font-size:16px;font-weight:800}
+.group-code{font-size:11px;font-family:var(--fm);color:var(--muted);margin-top:3px}
+.group-members{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px}
+.member-chip{font-size:11px;font-weight:600;padding:3px 10px;border-radius:20px;background:var(--surface2);color:var(--muted)}
+.member-chip.me{background:var(--blue-dim);color:var(--blue)}
 </style>
 </head>
 <body>
@@ -409,6 +424,58 @@ function fetchVr(token, userId) {
       if(!Array.isArray(rows)||!rows.length) return {credits:[],spends:[],alertPct:20};
       var r=rows[0]; return {credits:r.credits||[],spends:r.spends||[],alertPct:r.alert_pct||20};
     });
+}
+/* ── Groups API ── */
+function fetchGroups(token, userId) {
+  return supaAuth(token, '/rest/v1/groups?select=*,group_members(user_id,display_name)')
+    .then(function(r){return r.json();})
+    .then(function(rows){ return Array.isArray(rows)?rows:[]; });
+}
+function createGroup(token, userId, name, displayName) {
+  return supaAuth(token, '/rest/v1/groups', {method:'POST',
+    headers:Object.assign(authHdr(token),{'Prefer':'return=representation'}),
+    body:JSON.stringify({name:name, owner_id:userId})
+  }).then(function(r){return r.json();}).then(function(rows){
+    var g = Array.isArray(rows)?rows[0]:rows;
+    return supaAuth(token, '/rest/v1/group_members', {method:'POST',
+      headers:Object.assign(authHdr(token),{'Prefer':'return=minimal'}),
+      body:JSON.stringify({group_id:g.id, user_id:userId, display_name:displayName||'Eu'})
+    }).then(function(){return g;});
+  });
+}
+function joinGroup(token, userId, inviteCode, displayName) {
+  return supaAuth(token, '/rest/v1/groups?invite_code=eq.'+inviteCode+'&select=id,name')
+    .then(function(r){return r.json();}).then(function(rows){
+      if (!Array.isArray(rows)||!rows.length) throw new Error('Código inválido');
+      var g = rows[0];
+      return supaAuth(token, '/rest/v1/group_members', {method:'POST',
+        headers:Object.assign(authHdr(token),{'Prefer':'return=minimal'}),
+        body:JSON.stringify({group_id:g.id, user_id:userId, display_name:displayName||'Membro'})
+      }).then(function(){return g;});
+    });
+}
+function leaveGroup(token, userId, groupId) {
+  return supaAuth(token, '/rest/v1/group_members?group_id=eq.'+groupId+'&user_id=eq.'+userId, {method:'DELETE'});
+}
+function fetchGroupTxs(token, groupId) {
+  return supaAuth(token, '/rest/v1/transactions?group_id=eq.'+groupId+'&select=*&order=date.desc')
+    .then(function(r){return r.json();}).then(function(rows){
+      if (!Array.isArray(rows)) return [];
+      return rows.map(function(r){return {id:r.id,type:r.type,desc:r.description,amount:parseFloat(r.amount),
+        cat:r.cat,cardId:r.card_id,date:r.date,installment:r.installment,fromBill:r.from_bill,
+        groupId:r.group_id,launchedBy:r.launched_by,launchedByName:r.launched_by_name};});
+    });
+}
+function syncGroupTxUp(token, userId, userName, groupId, tx) {
+  var row = {id:tx.id,user_id:userId,type:tx.type,description:tx.desc,amount:tx.amount,
+    cat:tx.cat||null,card_id:tx.cardId||null,date:tx.date,group_id:groupId,
+    launched_by:userId,launched_by_name:userName,installment:tx.installment||null};
+  return supaAuth(token,'/rest/v1/transactions?on_conflict=id',{method:'POST',
+    headers:Object.assign(authHdr(token),{'Prefer':'resolution=merge-duplicates,return=minimal'}),
+    body:JSON.stringify([row])});
+}
+function deleteGroupTxUp(token, id) {
+  return supaAuth(token,'/rest/v1/transactions?id=eq.'+id,{method:'DELETE'});
 }
 function fmt(v) {
   return new Intl.NumberFormat('pt-BR',{style:'currency',currency:'BRL'}).format(v);
@@ -956,9 +1023,8 @@ function TxRow(props) {
       E('div', {className:'tx-desc'}, t.desc),
       E('div',{style:{display:'flex',alignItems:'center',gap:'6px',flexWrap:'wrap',marginTop:'3px'}},
         E('span',{className:'tx-cat',style:{marginTop:0}}, t.cat),
-        inst && E('span',{className:'inst-tag'},
-          inst.paid + '/' + inst.total + ' parcelas'
-        )
+        inst && E('span',{className:'inst-tag'}, inst.paid+'/'+inst.total+' parcelas'),
+        t.launchedByName && E('span',{className:'by-badge'}, t.launchedByName)
       )
     ),
     E('div', {className:'tx-amt '+cls}, (t.type==='income'?'+':'\u2212')+fmt(t.amount)),
@@ -1858,6 +1924,119 @@ function PwaBanner(props) {
   );
 }
 
+/* ── Groups Tab ── */
+function GroupsTab(props) {
+  var session   = props.session;
+  var token     = session.token;
+  var userId    = session.userId;
+  var groups    = props.groups;
+  var setGroups = props.setGroups;
+  var showToast = props.showToast;
+
+  var viewS    = useState('list');  var view    = viewS[0];    var setView    = viewS[1];
+  var nameS    = useState('');      var gname   = nameS[0];    var setGname   = nameS[1];
+  var dnameS   = useState('');      var dname   = dnameS[0];   var setDname   = dnameS[1];
+  var codeS    = useState('');      var code    = codeS[0];    var setCode    = codeS[1];
+  var loadS    = useState(false);   var load    = loadS[0];    var setLoad    = loadS[1];
+  var errS     = useState('');      var err     = errS[0];     var setErr     = errS[1];
+
+  function doCreate() {
+    if (!gname.trim()||!dname.trim()) return;
+    setLoad(true); setErr('');
+    createGroup(token, userId, gname.trim(), dname.trim()).then(function(g){
+      setLoad(false);
+      setGroups(function(gs){return gs.concat([Object.assign({},g,{group_members:[{user_id:userId,display_name:dname.trim()}]})]);});
+      showToast('Grupo "'+g.name+'" criado!');
+      setView('list'); setGname(''); setDname('');
+    }).catch(function(){ setLoad(false); setErr('Erro ao criar grupo.'); });
+  }
+
+  function doJoin() {
+    if (!code.trim()||!dname.trim()) return;
+    setLoad(true); setErr('');
+    joinGroup(token, userId, code.trim().toLowerCase(), dname.trim()).then(function(g){
+      setLoad(false);
+      fetchGroups(token, userId).then(function(gs){ setGroups(gs); });
+      showToast('Entrou no grupo "'+g.name+'"!');
+      setView('list'); setCode(''); setDname('');
+    }).catch(function(e){ setLoad(false); setErr(e.message||'Código inválido.'); });
+  }
+
+  function doLeave(groupId, groupName) {
+    leaveGroup(token, userId, groupId).then(function(){
+      setGroups(function(gs){return gs.filter(function(g){return g.id!==groupId;});});
+      showToast('Saiu do grupo "'+groupName+'"');
+    });
+  }
+
+  function copyCode(code) {
+    navigator.clipboard&&navigator.clipboard.writeText(code);
+    showToast('Código copiado!');
+  }
+
+  if (view==='create') return E('div',null,
+    E('div',{className:'hd'},E('div',{className:'hd-row'},E('span',{className:'hd-label'},'Novo Grupo'),E('button',{className:'actbtn',onClick:function(){setView('list');setErr('');}},'\u2190 Voltar'))),
+    E('div',{style:{padding:'16px 20px'}},
+      err && E('div',{className:'login-err'},err),
+      E('div',{className:'fg'},E('label',{className:'fl'},'Nome do grupo'),E('input',{className:'fi',placeholder:'Ex: Família, Casal...',value:gname,onChange:function(ev){setGname(ev.target.value);}})),
+      E('div',{className:'fg'},E('label',{className:'fl'},'Seu nome no grupo'),E('input',{className:'fi',placeholder:'Ex: João',value:dname,onChange:function(ev){setDname(ev.target.value);}})),
+      E('button',{className:'sbtn',onClick:doCreate,disabled:load},load?'Criando...':'Criar grupo')
+    )
+  );
+
+  if (view==='join') return E('div',null,
+    E('div',{className:'hd'},E('div',{className:'hd-row'},E('span',{className:'hd-label'},'Entrar em Grupo'),E('button',{className:'actbtn',onClick:function(){setView('list');setErr('');}},'\u2190 Voltar'))),
+    E('div',{style:{padding:'16px 20px'}},
+      err && E('div',{className:'login-err'},err),
+      E('div',{className:'fg'},E('label',{className:'fl'},'Código do grupo'),E('input',{className:'fi',placeholder:'Ex: a1b2c3d4',value:code,onChange:function(ev){setCode(ev.target.value);}})),
+      E('div',{className:'fg'},E('label',{className:'fl'},'Seu nome no grupo'),E('input',{className:'fi',placeholder:'Ex: Maria',value:dname,onChange:function(ev){setDname(ev.target.value);}})),
+      E('button',{className:'sbtn',onClick:doJoin,disabled:load},load?'Entrando...':'Entrar no grupo')
+    )
+  );
+
+  return E('div',null,
+    E('div',{className:'hd'},
+      E('div',{className:'hd-row'},
+        E('span',{className:'hd-label'},'Grupos'),
+        E('div',{style:{display:'flex',gap:'8px'}},
+          E('button',{className:'actbtn',onClick:function(){setView('join');}},'\uD83D\uDD17 Entrar'),
+          E('button',{className:'actbtn',onClick:function(){setView('create');}},'+  Criar')
+        )
+      )
+    ),
+    E('div',{style:{height:'16px'}}),
+    E('div',{className:'sec'},
+      groups.length===0
+        ? E('div',{className:'empty'},E('div',{className:'empty-ico'},'\uD83D\uDC65'),E('div',{className:'empty-txt'},'Crie um grupo ou entre com um código'))
+        : groups.map(function(g){
+            var members = g.group_members||[];
+            var isOwner = g.owner_id===userId;
+            return E('div',{key:g.id,className:'group-card'},
+              E('div',{className:'group-card-hd'},
+                E('div',null,
+                  E('div',{className:'group-name'},g.name+(isOwner?' 👑':'')),
+                  E('div',{className:'group-code'},
+                    'Código: ',
+                    E('span',{style:{color:'var(--accent)',cursor:'pointer'},onClick:function(){copyCode(g.invite_code);}},g.invite_code+' 📋')
+                  )
+                )
+              ),
+              E('div',{className:'group-members'},
+                members.map(function(m){
+                  return E('div',{key:m.user_id,className:'member-chip'+(m.user_id===userId?' me':'')},
+                    m.display_name+(m.user_id===userId?' (eu)':'')
+                  );
+                })
+              ),
+              E('button',{className:'del-btn',onClick:function(){doLeave(g.id,g.name);}},
+                isOwner?'Excluir grupo':'Sair do grupo'
+              )
+            );
+          })
+    )
+  );
+}
+
 /* ── Login Screen ── */
 function LoginScreen(props) {
   var emailS = useState(''); var email = emailS[0]; var setEmail = emailS[1];
@@ -1926,6 +2105,9 @@ function MainApp(props) {
   var billsS  = useLS('fin_bills_'+userId, []); var bills  = billsS[0]; var setBillsRaw  = billsS[1];
   var vrS     = useLS('fin_vr_'+userId, {credits:[],spends:[],alertPct:20}); var vr = vrS[0]; var setVrRaw = vrS[1];
   var cardsS  = useLS('fin_cards', []); var cards  = cardsS[0];
+  var grpS    = useState([]);           var groups = grpS[0]; var setGroups = grpS[1];
+  var ctxS    = useState('personal');   var ctx    = ctxS[0]; var setCtx    = ctxS[1]; /* 'personal' | groupId */
+  var grpTxsS = useState({});           var grpTxs = grpTxsS[0]; var setGrpTxs = grpTxsS[1];
   var tabS    = useState('home');       var tab    = tabS[0]; var setTab    = tabS[1];
   var addS    = useState(false);        var addMod = addS[0]; var setAddMod = addS[1];
   var toastS  = useState({msg:'',show:false}); var toast = toastS[0]; var setToast = toastS[1];
@@ -1936,12 +2118,13 @@ function MainApp(props) {
   /* ── load from Supabase on mount ── */
   useEffect(function(){
     setSyncSt('loading');
-    Promise.all([fetchTxs(token,userId), fetchBills(token,userId), fetchGoals(token,userId), fetchVr(token,userId)])
+    Promise.all([fetchTxs(token,userId), fetchBills(token,userId), fetchGoals(token,userId), fetchVr(token,userId), fetchGroups(token,userId)])
       .then(function(results){
         setTxsRaw(results[0]);
         setBillsRaw(results[1]);
         setGoalsRaw(results[2]);
         setVrRaw(results[3]);
+        setGroups(results[4]);
         setSyncSt('ok');
       })
       .catch(function(){ setSyncSt('err'); });
@@ -2003,13 +2186,35 @@ function MainApp(props) {
     localStorage.setItem('pwa-dismissed', '1');
   }
 
+  /* ── group context helpers ── */
+  var activeGroup = groups.find(function(g){return g.id===ctx;})||null;
+  var myDisplayName = activeGroup
+    ? ((activeGroup.group_members||[]).find(function(m){return m.user_id===userId;})||{}).display_name||session.email
+    : session.email;
+
+  function loadGroupTxs(groupId) {
+    fetchGroupTxs(token, groupId).then(function(rows){
+      setGrpTxs(function(prev){ var n=Object.assign({},prev); n[groupId]=rows; return n; });
+    });
+  }
+
+  function switchCtx(newCtx) {
+    setCtx(newCtx);
+    if (newCtx!=='personal' && !grpTxs[newCtx]) loadGroupTxs(newCtx);
+  }
   function showToast(msg) {
     setToast({msg:msg,show:true});
     setTimeout(function(){setToast(function(t){return Object.assign({},t,{show:false});});}, 2200);
   }
   function saveTx(tx) {
-    setTxs(function(ts){return ts.concat([tx]);});
-    showToast(tx.type==='income' ? 'Receita adicionada! \uD83D\uDC9A' : 'Despesa registrada!');
+    if (ctx==='personal') {
+      setTxs(function(ts){return ts.concat([tx]);});
+    } else {
+      var gtx=Object.assign({},tx,{groupId:ctx,launchedBy:userId,launchedByName:myDisplayName});
+      syncGroupTxUp(token,userId,myDisplayName,ctx,gtx);
+      setGrpTxs(function(prev){var n=Object.assign({},prev);n[ctx]=[gtx].concat(n[ctx]||[]);return n;});
+    }
+    showToast(tx.type==='income'?'Receita adicionada! \uD83D\uDC9A':'Despesa registrada!');
   }
 
   var syncIcon = syncSt==='loading' ? '\u23F3' : syncSt==='err' ? '\uD83D\uDEAB' : '\u2601\uFE0F';
@@ -2028,25 +2233,48 @@ function MainApp(props) {
     {id:'vr',        icon:'\uD83C\uDF74', label:'VR/VA'},
     {id:'goals',     icon:'\uD83C\uDFAF', label:'Metas'},
     {id:'history',   icon:'\uD83D\uDD0D', label:'Hist\u00f3rico'},
+    {id:'groups',    icon:'\uD83D\uDC65', label:'Grupos'},
   ];
 
-  var showFab = tab === 'home' || tab === 'history';
+  var showFab = (tab==='home'||tab==='history') ;
+  /* current txs based on context */
+  var activeTxs = ctx==='personal' ? txs : (grpTxs[ctx]||[]);
+  var setActiveTxs = ctx==='personal' ? setTxs : function(updater){
+    setGrpTxs(function(prev){
+      var n=Object.assign({},prev);
+      var cur=n[ctx]||[];
+      n[ctx]=typeof updater==='function'?updater(cur):updater;
+      /* sync deletes */
+      return n;
+    });
+  };
 
   return E('div', {className:'app'},
+    /* top bar */
     E('div',{style:{display:'flex',alignItems:'center',justifyContent:'space-between',
       padding:'6px 16px 0',fontSize:'10px',color:'var(--dim)',fontFamily:'var(--fm)'}},
-      E('span',{style:{color:'var(--dim)'}}, session.email),
+      E('span',null, session.email),
       E('div',{style:{display:'flex',alignItems:'center',gap:'8px'}},
-        E('span',{title:syncTitle},syncIcon+' '+syncTitle),
+        E('span',null, syncIcon+' '+syncTitle),
         E('button',{onClick:doLogout,style:{background:'none',border:'none',color:'var(--dim)',cursor:'pointer',fontSize:'10px',fontFamily:'var(--fm)',padding:0}},'sair')
       )
     ),
+    /* context switcher */
+    groups.length>0 && E('div',{className:'ctx-bar'},
+      E('button',{className:'ctx-pill'+(ctx==='personal'?' on':''),onClick:function(){switchCtx('personal');}},'\uD83D\uDC64 Pessoal'),
+      groups.map(function(g){
+        return E('button',{key:g.id,className:'ctx-pill grp'+(ctx===g.id?' on':''),onClick:function(){switchCtx(g.id);}},
+          '\uD83D\uDC65 '+g.name
+        );
+      })
+    ),
     E('div', {className:'scroll'},
-      tab==='home'      && E(HomeTab,      {txs:txs, bills:bills, setBills:setBills, setTxs:setTxs, showToast:showToast}),
-      tab==='dashboard' && E(DashboardTab, {txs:txs, bills:bills, goals:goals}),
+      tab==='home'      && E(HomeTab,      {txs:activeTxs, bills:ctx==='personal'?bills:[], setBills:setBills, setTxs:setActiveTxs, showToast:showToast, isGroup:ctx!=='personal'}),
+      tab==='dashboard' && E(DashboardTab, {txs:activeTxs, bills:ctx==='personal'?bills:[], goals:ctx==='personal'?goals:[]}),
       tab==='vr'        && E(VRTab,        {vr:vr, setVr:setVr, showToast:showToast}),
       tab==='goals'     && E(GoalsTab,     {goals:goals, setGoals:setGoals, showToast:showToast}),
-      tab==='history'   && E(HistoryTab,   {txs:txs, setTxs:setTxs, showToast:showToast}),
+      tab==='history'   && E(HistoryTab,   {txs:activeTxs, setTxs:setActiveTxs, showToast:showToast}),
+      tab==='groups'    && E(GroupsTab,    {session:session, groups:groups, setGroups:setGroups, showToast:showToast}),
       showPwa && E(PwaBanner, {onInstall:installPwa, onDismiss:dismissPwa})
     ),
     showFab && E('button', {className:'fab', onClick:function(){setAddMod(true);}}, '+'),
