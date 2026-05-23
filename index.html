@@ -387,7 +387,7 @@ function deleteTxUp(token, id) {
 }
 
 function syncBillsUp(token, userId, bills) {
-  var rows = bills.map(function(b){return {id:b.id,user_id:userId,name:b.name,amount:b.amount,cat:b.cat||null,fixed:b.fixed,day:b.day||null,card_id:b.cardId||null,payments:b.payments||{}};});
+  var rows = bills.map(function(b){return {id:b.id,user_id:userId,name:b.name,amount:b.amount,cat:b.cat||null,fixed:b.fixed,day:b.day||null,card_id:b.cardId||null,payments:b.payments||{},start_month:b.startMonth||null};});
   if (!rows.length) return supaAuth(token,'/rest/v1/bills?user_id=eq.'+userId,{method:'DELETE'});
   return supaAuth(token,'/rest/v1/bills?on_conflict=id',{method:'POST',headers:Object.assign(authHdr(token),{'Prefer':'resolution=merge-duplicates,return=minimal'}),body:JSON.stringify(rows)});
 }
@@ -395,7 +395,7 @@ function fetchBills(token, userId) {
   return supaAuth(token,'/rest/v1/bills?user_id=eq.'+userId+'&select=*')
     .then(function(r){return r.json();}).then(function(rows){
       if(!Array.isArray(rows)) return [];
-      return rows.map(function(r){return {id:r.id,name:r.name,amount:parseFloat(r.amount),cat:r.cat,fixed:r.fixed,day:r.day,cardId:r.card_id,payments:r.payments||{}};});
+      return rows.map(function(r){return {id:r.id,name:r.name,amount:parseFloat(r.amount),cat:r.cat,fixed:r.fixed,day:r.day,cardId:r.card_id,payments:r.payments||{},startMonth:r.start_month||null};});
     });
 }
 
@@ -497,9 +497,6 @@ function fmt(v) {
   return new Intl.NumberFormat('pt-BR',{style:'currency',currency:'BRL'}).format(v);
 }
 function fmtShort(v) {
-  const abs = Math.abs(v);
-  const sign = v < 0 ? '-' : '';
-  if (abs >= 1000) return sign + 'R$' + (abs / 1000).toFixed(1) + 'k';
   return fmt(v);
 }
 function hashPin(pin) {
@@ -911,7 +908,15 @@ function HomeTab(props) {
   var filtered = props.txs.filter(function(t){ var d=new Date(t.date); return d>=from&&d<=to; });
 
   var mk = mb.first.getFullYear()+'-'+String(mb.first.getMonth()+1).padStart(2,'0');
-  var bills = props.bills || [];
+  /* only show bills that started on or before this month */
+  function billsForMonth(allBills, monthKey) {
+    return allBills.filter(function(b){
+      if (!b.startMonth) return true; /* legacy bills without startMonth: always show */
+      return b.startMonth <= monthKey;
+    });
+  }
+
+  var bills = billsForMonth(props.bills || [], mk);
 
   function billIsPaid(bill){ return !!(bill.payments&&bill.payments[mk]&&bill.payments[mk].paid); }
   function getBillStatus(bill){
@@ -1332,7 +1337,8 @@ function AddBillModal(props) {
       fixed: fixed,
       day: fixed ? +day : null,
       cardId: cardId || null,
-      payments: {}   /* key: "YYYY-MM" -> {paid, date} */
+      startMonth: new Date().getFullYear()+'-'+String(new Date().getMonth()+1).padStart(2,'0'),
+      payments: {}
     });
     props.onClose();
   }
@@ -1617,8 +1623,11 @@ function DashboardTab(props) {
   var mk = mb.first.getFullYear()+'-'+String(mb.first.getMonth()+1).padStart(2,'0');
 
   var txs   = props.txs;
-  var bills = props.bills||[];
   var goals = props.goals||[];
+  var bills = (props.bills||[]).filter(function(b){
+    if (!b.startMonth) return true;
+    return b.startMonth <= mk;
+  });
 
   /* txs in this month */
   var monthTxs = txs.filter(function(t){
