@@ -49,7 +49,7 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:var(--f
 .datepick input[type=date]:focus{border-color:var(--accent)}
 .bal{padding:16px 20px 20px}
 .bal-lbl{font-size:11px;font-weight:600;letter-spacing:.1em;text-transform:uppercase;color:var(--muted);margin-bottom:6px}
-.bal-val{font-size:42px;font-weight:800;letter-spacing:-.03em;line-height:1}
+.bal-val{font-size:28px;font-weight:800;letter-spacing:-.02em;line-height:1.1}
 .bal-val.pos{color:var(--green)}.bal-val.neg{color:var(--red)}.bal-val.zer{color:var(--text)}
 .stats{display:grid;grid-template-columns:1fr 1fr;gap:10px;padding:0 20px 16px}
 .sc{background:var(--surface);border:1px solid var(--border);border-radius:var(--r);padding:14px}
@@ -1229,6 +1229,7 @@ function HistoryTab(props) {
         if (props.groupId) {
           imported = imported.map(function(t){
             return Object.assign({},t,{
+              id: t.id + Math.floor(Math.random()*1000), /* avoid id collision with personal */
               groupId:props.groupId,
               launchedBy:props.userId,
               launchedByName:props.displayName||''
@@ -2247,8 +2248,10 @@ function MainApp(props) {
   function setTxs(updater) {
     setTxsRaw(function(prev){
       var next = typeof updater==='function'?updater(prev):updater;
-      debounceSync('txs', function(){ syncTxsUp(token,userId,next); }, 800);
-      return next;
+      /* ONLY sync personal txs — never txs that have a groupId */
+      var personalOnly = next.filter(function(t){ return !t.groupId; });
+      debounceSync('txs', function(){ syncTxsUp(token,userId,personalOnly); }, 800);
+      return personalOnly; /* never store group txs in personal array */
     });
   }
   function setBills(updater) {
@@ -2374,9 +2377,13 @@ function MainApp(props) {
         debounceSync('grpadd_'+groupId, function(){
           added.forEach(function(tx){ syncGroupTxUp(token,userId,myDisplayName,groupId,tx); });
         }, 800);
-        /* delete removed txs */
+        /* delete removed txs — only delete from this group's scope */
         var removed = cur.filter(function(t){ return !nextIds[t.id]; });
-        removed.forEach(function(t){ deleteTxUp(token,t.id); });
+        removed.forEach(function(t){
+          supaAuth(token,'/rest/v1/transactions?id=eq.'+t.id+'&group_id=eq.'+groupId,{
+            method:'DELETE',headers:Object.assign(authHdr(token),{'Accept':'application/json'})
+          });
+        });
         return n;
       });
     }
