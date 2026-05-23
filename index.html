@@ -1128,7 +1128,9 @@ function expandInstallments(txs) {
 }
 
 function HistoryTab(props) {
-  var filterS = useState('all'); var filter = filterS[0]; var setFilter = filterS[1];
+  var filterS  = useState('all');   var filter  = filterS[0];  var setFilter  = filterS[1];
+  var importS  = useState(false);   var importing = importS[0]; var setImporting = importS[1];
+  var importMsgS = useState('');    var importMsg = importMsgS[0]; var setImportMsg = importMsgS[1];
 
   var base = filter === 'all' ? props.txs : props.txs.filter(function(t){return t.type===filter;});
   var rows = expandInstallments(base);
@@ -1160,6 +1162,73 @@ function HistoryTab(props) {
     props.showToast('CSV exportado!');
   }
 
+  function importCSV(ev) {
+    var file = ev.target.files&&ev.target.files[0];
+    if (!file) return;
+    setImporting(true); setImportMsg('Lendo arquivo...');
+    var reader = new FileReader();
+    reader.onload = function(e) {
+      try {
+        var text = e.target.result.replace(/^\uFEFF/,''); /* remove BOM */
+        var lines = text.split('\n').filter(function(l){return l.trim();});
+        /* skip header */
+        var imported = [];
+        var errs = 0;
+        for (var i=1;i<lines.length;i++) {
+          /* parse semicolon-separated, quoted fields */
+          var cols = lines[i].split(';').map(function(c){return c.replace(/^"|"$/g,'').trim();});
+          if (cols.length < 6) { errs++; continue; }
+          /* cols: Data, Tipo, Descrição, Categoria, Parcela, Valor */
+          var dateParts = cols[0].split('/'); /* DD/MM/AAAA */
+          if (dateParts.length !== 3) { errs++; continue; }
+          var date = new Date(+dateParts[2], +dateParts[1]-1, +dateParts[0], 12, 0, 0);
+          var type = cols[1]==='Receita'?'income':'expense';
+          var desc = cols[2];
+          var cat  = cols[3]||'Outros';
+          var val  = parseFloat(cols[5].replace('.','').replace(',','.'));
+          if (!desc||isNaN(val)||val<=0) { errs++; continue; }
+          /* skip future installment rows (parcela > 1) */
+          var parcela = cols[4];
+          if (parcela && parcela!=='-') {
+            var pparts = parcela.split('/');
+            if (pparts.length===2 && +pparts[0]>1) continue;
+          }
+          imported.push({
+            id: date.getTime()+Math.floor(Math.random()*1000)+i,
+            type:type, desc:desc, amount:val, cat:cat,
+            date:date.toISOString(), cardId:null, installment:null, fromBill:null
+          });
+        }
+        if (imported.length===0) {
+          setImportMsg('Nenhum registro válido encontrado.');
+          setImporting(false);
+          return;
+        }
+        /* merge avoiding duplicates by desc+amount+date */
+        props.setTxs(function(existing){
+          var merged = existing.slice();
+          imported.forEach(function(imp){
+            var dup = merged.some(function(ex){
+              return ex.desc===imp.desc && ex.amount===imp.amount &&
+                Math.abs(new Date(ex.date)-new Date(imp.date))<86400000;
+            });
+            if (!dup) merged.push(imp);
+          });
+          return merged;
+        });
+        setImportMsg(imported.length+' registros importados'+(errs?' ('+errs+' ignorados)':'')+'!');
+        props.showToast(imported.length+' registros importados \u2705');
+        setTimeout(function(){setImporting(false);setImportMsg('');},3000);
+      } catch(err) {
+        setImportMsg('Erro ao ler arquivo: '+err.message);
+        setImporting(false);
+      }
+    };
+    reader.readAsText(file,'UTF-8');
+    /* reset input */
+    ev.target.value='';
+  }
+
   /* group rows by month label */
   var groups = [];
   var seen   = {};
@@ -1176,9 +1245,16 @@ function HistoryTab(props) {
     E('div', {className:'hd'},
       E('div', {className:'hd-row'},
         E('span', {className:'hd-label'}, 'Hist\u00f3rico'),
-        E('button', {className:'actbtn', onClick:exportCSV}, '\u2193 Exportar CSV')
+        E('div',{style:{display:'flex',gap:'6px'}},
+          E('label',{className:'actbtn',style:{cursor:'pointer'}},
+            '\u2191 Importar CSV',
+            E('input',{type:'file',accept:'.csv',style:{display:'none'},onChange:importCSV})
+          ),
+          E('button', {className:'actbtn', onClick:exportCSV}, '\u2193 Exportar CSV')
+        )
       )
     ),
+    importMsg && E('div',{style:{margin:'8px 20px 0',padding:'10px 14px',background:'var(--green-dim)',border:'1px solid var(--green)',borderRadius:'var(--rs)',fontSize:'13px',color:'var(--green)',fontWeight:600}},importMsg),
     E('div', {className:'pills'},
       ['all','income','expense'].map(function(f){
         return E('button',{key:f, className:'pill'+(filter===f?' on':''), onClick:function(){setFilter(f);}},
