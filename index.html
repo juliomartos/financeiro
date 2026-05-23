@@ -435,12 +435,20 @@ function createGroup(token, userId, name, displayName) {
   return supaAuth(token, '/rest/v1/groups', {method:'POST',
     headers:Object.assign(authHdr(token),{'Prefer':'return=representation'}),
     body:JSON.stringify({name:name, owner_id:userId})
-  }).then(function(r){return r.json();}).then(function(rows){
+  }).then(function(r){
+    console.log('createGroup status:', r.status);
+    return r.json();
+  }).then(function(rows){
+    console.log('createGroup response:', JSON.stringify(rows));
     var g = Array.isArray(rows)?rows[0]:rows;
+    if (!g || !g.id) throw new Error('Grupo não criado: '+(rows.message||rows.error||JSON.stringify(rows)));
     return supaAuth(token, '/rest/v1/group_members', {method:'POST',
       headers:Object.assign(authHdr(token),{'Prefer':'return=minimal'}),
       body:JSON.stringify({group_id:g.id, user_id:userId, display_name:displayName||'Eu'})
-    }).then(function(){return g;});
+    }).then(function(r2){
+      console.log('group_members status:', r2.status);
+      return g;
+    });
   });
 }
 function joinGroup(token, userId, inviteCode, displayName) {
@@ -454,8 +462,16 @@ function joinGroup(token, userId, inviteCode, displayName) {
       }).then(function(){return g;});
     });
 }
-function leaveGroup(token, userId, groupId) {
-  return supaAuth(token, '/rest/v1/group_members?group_id=eq.'+groupId+'&user_id=eq.'+userId, {method:'DELETE'});
+function leaveGroup(token, userId, groupId, isOwner) {
+  if (isOwner) {
+    /* owner deleting = delete whole group (cascades members) */
+    return supaAuth(token, '/rest/v1/groups?id=eq.'+groupId, {method:'DELETE',
+      headers:Object.assign(authHdr(token),{'Accept':'application/json'})
+    });
+  }
+  return supaAuth(token, '/rest/v1/group_members?group_id=eq.'+groupId+'&user_id=eq.'+userId, {
+    method:'DELETE', headers:Object.assign(authHdr(token),{'Accept':'application/json'})
+  });
 }
 function fetchGroupTxs(token, groupId) {
   return supaAuth(token, '/rest/v1/transactions?group_id=eq.'+groupId+'&select=*&order=date.desc')
@@ -1215,8 +1231,7 @@ function HistoryTab(props) {
             if (!dup) merged.push(imp);
           });
           return merged;
-        });
-        setImportMsg(imported.length+' registros importados'+(errs?' ('+errs+' ignorados)':'')+'!');
+        });        setImportMsg(imported.length+' registros importados'+(errs?' ('+errs+' ignorados)':'')+'!');
         props.showToast(imported.length+' registros importados \u2705');
         setTimeout(function(){setImporting(false);setImportMsg('');},3000);
       } catch(err) {
@@ -2038,10 +2053,12 @@ function GroupsTab(props) {
     }).catch(function(e){ setLoad(false); setErr(e.message||'Código inválido.'); });
   }
 
-  function doLeave(groupId, groupName) {
-    leaveGroup(token, userId, groupId).then(function(){
+  function doLeave(groupId, groupName, isOwner) {
+    leaveGroup(token, userId, groupId, isOwner).then(function(){
       setGroups(function(gs){return gs.filter(function(g){return g.id!==groupId;});});
-      showToast('Saiu do grupo "'+groupName+'"');
+      showToast(isOwner ? 'Grupo "'+groupName+'" exclu\u00eddo' : 'Sa\u00edu do grupo "'+groupName+'"');
+    }).catch(function(){
+      showToast('Erro ao sair do grupo');
     });
   }
 
@@ -2104,7 +2121,7 @@ function GroupsTab(props) {
                   );
                 })
               ),
-              E('button',{className:'del-btn',onClick:function(){doLeave(g.id,g.name);}},
+              E('button',{className:'del-btn',onClick:function(){doLeave(g.id,g.name,isOwner);},style:{marginTop:'8px'}},
                 isOwner?'Excluir grupo':'Sair do grupo'
               )
             );
@@ -2276,7 +2293,8 @@ function MainApp(props) {
 
   function switchCtx(newCtx) {
     setCtx(newCtx);
-    if (newCtx!=='personal' && !grpTxs[newCtx]) loadGroupTxs(newCtx);
+    /* always reload group txs fresh when switching */
+    if (newCtx!=='personal') loadGroupTxs(newCtx);
   }
   function showToast(msg) {
     setToast({msg:msg,show:true});
@@ -2317,10 +2335,16 @@ function MainApp(props) {
   var activeTxs = ctx==='personal' ? txs : (grpTxs[ctx]||[]);
   var setActiveTxs = ctx==='personal' ? setTxs : function(updater){
     setGrpTxs(function(prev){
-      var n=Object.assign({},prev);
-      var cur=n[ctx]||[];
-      n[ctx]=typeof updater==='function'?updater(cur):updater;
-      /* sync deletes */
+      var n = Object.assign({},prev);
+      var cur = n[ctx]||[];
+      var next = typeof updater==='function'?updater(cur):updater;
+      n[ctx] = next;
+      /* sync all group txs to Supabase */
+      debounceSync('grptxs_'+ctx, function(){
+        next.forEach(function(tx){
+          syncGroupTxUp(token,userId,myDisplayName,ctx,tx);
+        });
+      }, 1200);
       return n;
     });
   };
