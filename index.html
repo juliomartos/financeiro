@@ -205,6 +205,25 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:var(--f
 .vr-config{display:flex;align-items:center;justify-content:space-between;padding:0 20px 16px}
 .vr-config-lbl{font-size:12px;color:var(--muted);font-weight:600}
 .vr-config-val{font-size:13px;font-weight:700;font-family:var(--fm);color:var(--text)}
+/* cards tab */
+.card-visual{border-radius:16px;padding:20px;margin:0 20px 16px;min-height:136px;position:relative;overflow:hidden;display:flex;flex-direction:column;justify-content:space-between;box-shadow:0 4px 24px rgba(0,0,0,.4)}
+.card-visual-name{font-size:18px;font-weight:800;color:#fff;text-shadow:0 1px 4px rgba(0,0,0,.3)}
+.card-visual-brand{font-size:10px;font-weight:700;color:rgba(255,255,255,.65);text-transform:uppercase;letter-spacing:.1em;margin-top:2px}
+.card-visual-info{display:flex;justify-content:space-between;align-items:flex-end;margin-top:16px}
+.card-visual-limit{font-size:11px;color:rgba(255,255,255,.65)}
+.card-visual-limit b{font-size:15px;font-weight:800;color:#fff;display:block;margin-top:2px}
+.card-nav{display:flex;gap:8px;padding:0 20px 12px;overflow-x:auto;scrollbar-width:none}
+.card-nav::-webkit-scrollbar{display:none}
+.card-nav-btn{padding:5px 14px;border-radius:20px;border:1px solid var(--border2);background:none;color:var(--muted);font-family:var(--fd);font-size:12px;font-weight:600;cursor:pointer;white-space:nowrap;flex-shrink:0;transition:all .15s}
+.card-nav-btn.on{border-color:var(--accent);color:var(--accent);background:var(--green-dim)}
+.invoice-hero{padding:0 20px 12px}
+.invoice-lbl{font-size:10px;font-weight:600;letter-spacing:.1em;text-transform:uppercase;color:var(--muted);margin-bottom:4px}
+.invoice-val{font-size:30px;font-weight:800;letter-spacing:-.02em}
+.invoice-dates{display:flex;gap:20px;margin-top:10px}
+.invoice-date{font-size:11px;color:var(--muted);line-height:1.5}
+.invoice-date b{color:var(--text);font-family:var(--fm);display:block;font-size:13px}
+.card-add-btn{margin:0 20px 12px;display:flex;align-items:center;justify-content:center;gap:8px;padding:14px;border:1px dashed var(--border2);border-radius:var(--r);background:none;color:var(--muted);font-family:var(--fd);font-size:13px;font-weight:600;cursor:pointer;width:calc(100% - 40px);transition:border-color .15s}
+.card-add-btn:hover{border-color:var(--accent);color:var(--accent)}
 /* login screen */
 .login-wrap{height:100vh;max-width:430px;margin:0 auto;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:40px 32px;background:var(--bg)}
 .login-logo{font-size:52px;margin-bottom:12px}
@@ -371,19 +390,19 @@ function debounceSync(key, fn, ms) {
 }
 
 function syncTxsUp(token, userId, txs) {
-  var rows = txs.map(function(t){return {id:t.id,user_id:userId,type:t.type,description:t.desc,amount:t.amount,cat:t.cat||null,card_id:t.cardId||null,date:t.date,installment:t.installment||null,from_bill:t.fromBill||null};});
-  if (!rows.length) return supaAuth(token,'/rest/v1/transactions?user_id=eq.'+userId,{method:'DELETE'});
+  var rows = txs.map(function(t){return {id:t.id,user_id:userId,type:t.type,description:t.desc,amount:t.amount,cat:t.cat||null,card_id:t.cardId||null,date:t.date,group_id:null,installment:t.installment||null,from_bill:t.fromBill||null};});
+  if (!rows.length) return supaAuth(token,'/rest/v1/transactions?user_id=eq.'+userId+'&group_id=is.null',{method:'DELETE',headers:Object.assign(authHdr(token),{'Accept':'application/json'})});
   return supaAuth(token,'/rest/v1/transactions?on_conflict=id',{method:'POST',headers:Object.assign(authHdr(token),{'Prefer':'resolution=merge-duplicates,return=minimal'}),body:JSON.stringify(rows)});
 }
 function fetchTxs(token, userId) {
-  return supaAuth(token,'/rest/v1/transactions?user_id=eq.'+userId+'&select=*&order=date.desc')
+  return supaAuth(token,'/rest/v1/transactions?user_id=eq.'+userId+'&group_id=is.null&select=*&order=date.desc')
     .then(function(r){return r.json();}).then(function(rows){
       if(!Array.isArray(rows)) return [];
       return rows.map(function(r){return {id:r.id,type:r.type,desc:r.description,amount:parseFloat(r.amount),cat:r.cat,cardId:r.card_id,date:r.date,installment:r.installment,fromBill:r.from_bill};});
     });
 }
 function deleteTxUp(token, id) {
-  return supaAuth(token,'/rest/v1/transactions?id=eq.'+id,{method:'DELETE'});
+  return supaAuth(token,'/rest/v1/transactions?id=eq.'+id+'&group_id=is.null',{method:'DELETE',headers:Object.assign(authHdr(token),{'Accept':'application/json'})});
 }
 
 function syncBillsUp(token, userId, bills) {
@@ -418,6 +437,29 @@ function syncVrUp(token, userId, vr) {
     body:JSON.stringify({user_id:userId,credits:vr.credits||[],spends:vr.spends||[],alert_pct:vr.alertPct||20,updated_at:new Date().toISOString()})
   });
 }
+/* ── Cards API ── */
+function fetchCards(token, userId) {
+  return supaAuth(token, '/rest/v1/cards?user_id=eq.'+userId+'&select=*&order=created_at.asc')
+    .then(function(r){return r.json();}).then(function(rows){
+      if(!Array.isArray(rows)) return [];
+      return rows.map(function(r){return {
+        id:r.id, name:r.name, limitAmount:r.limit_amount?parseFloat(r.limit_amount):null,
+        closingDay:r.closing_day, dueDay:r.due_day, brand:r.brand, color:r.color
+      };});
+    });
+}
+function syncCardsUp(token, userId, cards) {
+  var rows = cards.map(function(c){return {
+    id:c.id, user_id:userId, name:c.name,
+    limit_amount:c.limitAmount||null, closing_day:c.closingDay,
+    due_day:c.dueDay, brand:c.brand||'other', color:c.color||'#60a5fa'
+  };});
+  if (!rows.length) return supaAuth(token,'/rest/v1/cards?user_id=eq.'+userId,{method:'DELETE',headers:Object.assign(authHdr(token),{'Accept':'application/json'})});
+  return supaAuth(token,'/rest/v1/cards?on_conflict=id',{method:'POST',
+    headers:Object.assign(authHdr(token),{'Prefer':'resolution=merge-duplicates,return=minimal'}),
+    body:JSON.stringify(rows)});
+}
+
 function fetchVr(token, userId) {
   return supaAuth(token,'/rest/v1/vr_data?user_id=eq.'+userId+'&select=*')
     .then(function(r){return r.json();}).then(function(rows){
@@ -2036,6 +2078,236 @@ function PwaBanner(props) {
   );
 }
 
+/* ── Cards Tab ── */
+var CARD_COLORS = ['#6366f1','#0ea5e9','#10b981','#f59e0b','#ef4444','#8b5cf6','#ec4899','#14b8a6'];
+var BRANDS = [{id:'visa',label:'Visa'},{id:'master',label:'Mastercard'},{id:'elo',label:'Elo'},{id:'amex',label:'Amex'},{id:'other',label:'Outro'}];
+
+function AddCardModal(props) {
+  var nameS    = useState('');       var name       = nameS[0];    var setName       = nameS[1];
+  var limitS   = useState('');       var limitAmt   = limitS[0];   var setLimitAmt   = limitS[1];
+  var closeDS  = useState('');       var closingDay = closeDS[0];  var setClosingDay = closeDS[1];
+  var dueDS    = useState('');       var dueDay     = dueDS[0];    var setDueDay     = dueDS[1];
+  var brandS   = useState('visa');   var brand      = brandS[0];   var setBrand      = brandS[1];
+  var colorS   = useState(CARD_COLORS[0]); var color = colorS[0];  var setColor      = colorS[1];
+
+  function submit() {
+    if (!name.trim()||!closingDay||!dueDay) return;
+    props.onSave({
+      id: Date.now(), name:name.trim(),
+      limitAmount: limitAmt?parseFloat(limitAmt.replace(',','.')):null,
+      closingDay:+closingDay, dueDay:+dueDay,
+      brand:brand, color:color
+    });
+    props.onClose();
+  }
+  function stopProp(ev){ev.stopPropagation();}
+
+  return E('div',{className:'ov',onClick:props.onClose},
+    E('div',{className:'modal',onClick:stopProp},
+      E('div',{className:'modal-title'},'Novo Cartão'),
+      E('div',{className:'fg'},
+        E('label',{className:'fl'},'Nome do cartão'),
+        E('input',{className:'fi',placeholder:'Ex: Nubank, Itaú...',value:name,onChange:function(ev){setName(ev.target.value);}})
+      ),
+      E('div',{className:'fg'},
+        E('label',{className:'fl'},'Cor'),
+        E('div',{style:{display:'flex',gap:'8px',flexWrap:'wrap'}},
+          CARD_COLORS.map(function(c){
+            return E('button',{key:c,onClick:function(){setColor(c);},style:{
+              width:'28px',height:'28px',borderRadius:'50%',background:c,border:color===c?'3px solid #fff':'2px solid transparent',cursor:'pointer',flexShrink:0
+            }});
+          })
+        )
+      ),
+      E('div',{className:'frow'},
+        E('div',{className:'fg'},
+          E('label',{className:'fl'},'Bandeira'),
+          E('select',{className:'fi',value:brand,onChange:function(ev){setBrand(ev.target.value);}},
+            BRANDS.map(function(b){return E('option',{key:b.id,value:b.id},b.label);})
+          )
+        ),
+        E('div',{className:'fg'},
+          E('label',{className:'fl'},'Limite (R$)'),
+          E('input',{className:'fi',type:'number',inputMode:'decimal',placeholder:'Opcional',value:limitAmt,onChange:function(ev){setLimitAmt(ev.target.value);}})
+        )
+      ),
+      E('div',{className:'frow'},
+        E('div',{className:'fg'},
+          E('label',{className:'fl'},'Dia fechamento'),
+          E('input',{className:'fi',type:'number',inputMode:'numeric',placeholder:'Ex: 20',min:'1',max:'31',value:closingDay,onChange:function(ev){setClosingDay(ev.target.value);}})
+        ),
+        E('div',{className:'fg'},
+          E('label',{className:'fl'},'Dia vencimento'),
+          E('input',{className:'fi',type:'number',inputMode:'numeric',placeholder:'Ex: 5',min:'1',max:'31',value:dueDay,onChange:function(ev){setDueDay(ev.target.value);}})
+        )
+      ),
+      E('button',{className:'sbtn',onClick:submit},'Salvar'),
+      E('button',{className:'cbtn',onClick:props.onClose},'Cancelar')
+    )
+  );
+}
+
+function CardsTab(props) {
+  var cards     = props.cards;
+  var setCards  = props.setCards;
+  var txs       = props.txs;
+  var showToast = props.showToast;
+
+  var selS    = useState(cards.length>0?cards[0].id:null); var selId = selS[0]; var setSel = selS[1];
+  var addModS = useState(false); var addMod = addModS[0]; var setAddMod = addModS[1];
+  var confS   = useState(null);  var conf   = confS[0];   var setConf   = confS[1];
+
+  /* if cards change and selId is gone, reset */
+  var selCard = cards.find(function(c){return c.id===selId;})||cards[0]||null;
+
+  function getInvoiceTxs(card) {
+    /* current invoice: from last closing to next closing */
+    var now = new Date();
+    var closeDay = card.closingDay;
+    /* find current cycle start */
+    var cycleStart = new Date(now.getFullYear(), now.getMonth(), closeDay+1);
+    if (now.getDate() <= closeDay) {
+      cycleStart = new Date(now.getFullYear(), now.getMonth()-1, closeDay+1);
+    }
+    cycleStart.setHours(0,0,0,0);
+    var cycleEnd = new Date(cycleStart.getFullYear(), cycleStart.getMonth()+1, closeDay);
+    cycleEnd.setHours(23,59,59,999);
+    return txs.filter(function(t){
+      var d = new Date(t.date);
+      return String(t.cardId)===String(card.id) && t.type==='expense' && d>=cycleStart && d<=cycleEnd;
+    });
+  }
+
+  function getInvoiceTotal(card) {
+    return getInvoiceTxs(card).reduce(function(s,t){return s+t.amount;},0);
+  }
+
+  function getDueDate(card) {
+    var now = new Date();
+    var dueDay = card.dueDay;
+    var due = new Date(now.getFullYear(), now.getMonth(), dueDay);
+    if (due < now) due = new Date(now.getFullYear(), now.getMonth()+1, dueDay);
+    return due.toLocaleDateString('pt-BR',{day:'2-digit',month:'2-digit'});
+  }
+
+  function getClosingDate(card) {
+    var now = new Date();
+    var closeDay = card.closingDay;
+    var closing = new Date(now.getFullYear(), now.getMonth(), closeDay);
+    if (closing < now) closing = new Date(now.getFullYear(), now.getMonth()+1, closeDay);
+    return closing.toLocaleDateString('pt-BR',{day:'2-digit',month:'2-digit'});
+  }
+
+  function delCard(id) {
+    setCards(function(cs){return cs.filter(function(c){return c.id!==id;});});
+    setSel(cards.length>1?cards.find(function(c){return c.id!==id;}).id:null);
+    showToast('Cartão removido');
+    setConf(null);
+  }
+
+  if (cards.length===0) return E('div',null,
+    E('div',{className:'hd'},E('div',{className:'hd-row'},E('span',{className:'hd-label'},'Cartões'))),
+    E('div',{style:{height:'16px'}}),
+    E('div',{className:'empty'},E('div',{className:'empty-ico'},'💳'),E('div',{className:'empty-txt'},'Nenhum cartão cadastrado')),
+    E('button',{className:'card-add-btn',onClick:function(){setAddMod(true);}},'+  Adicionar cartão'),
+    addMod&&E(AddCardModal,{onClose:function(){setAddMod(false);},onSave:function(c){setCards(function(cs){return cs.concat([c]);});setSel(c.id);showToast('Cartão adicionado!');setAddMod(false);}})
+  );
+
+  var invoiceTxs   = selCard ? getInvoiceTxs(selCard) : [];
+  var invoiceTotal = invoiceTxs.reduce(function(s,t){return s+t.amount;},0);
+  var limitPct     = selCard&&selCard.limitAmount ? Math.min(100,(invoiceTotal/selCard.limitAmount)*100) : null;
+  var limitCls     = limitPct===null?'safe':limitPct<60?'safe':limitPct<85?'warn':'danger';
+
+  return E('div',null,
+    E('div',{className:'hd'},
+      E('div',{className:'hd-row'},
+        E('span',{className:'hd-label'},'Cartões'),
+        E('button',{className:'actbtn',onClick:function(){setAddMod(true);}},'+  Novo')
+      )
+    ),
+    E('div',{style:{height:'12px'}}),
+
+    /* card selector */
+    E('div',{className:'card-nav'},
+      cards.map(function(c){
+        return E('button',{key:c.id,className:'card-nav-btn'+(selId===c.id?' on':''),
+          onClick:function(){setSel(c.id);}}, c.name);
+      })
+    ),
+
+    selCard && E('div',null,
+      /* card visual */
+      E('div',{className:'card-visual',style:{background:'linear-gradient(135deg, '+selCard.color+' 0%, '+selCard.color+'99 100%)'}},
+        E('div',null,
+          E('div',{className:'card-visual-name'},selCard.name),
+          E('div',{className:'card-visual-brand'},(BRANDS.find(function(b){return b.id===selCard.brand;})||{label:'Outro'}).label)
+        ),
+        E('div',{className:'card-visual-info'},
+          E('div',{className:'card-visual-limit'},
+            'Fatura atual',
+            E('b',null,fmt(invoiceTotal))
+          ),
+          selCard.limitAmount&&E('div',{className:'card-visual-limit',style:{textAlign:'right'}},
+            'Limite',
+            E('b',null,fmt(selCard.limitAmount))
+          )
+        )
+      ),
+
+      /* limit bar */
+      limitPct!==null&&E('div',{style:{padding:'0 20px 12px'}},
+        E('div',{className:'pbar'},E('div',{className:'pfill '+limitCls,style:{width:limitPct.toFixed(1)+'%'}})),
+        E('div',{style:{display:'flex',justifyContent:'space-between',fontSize:'11px',color:'var(--muted)',fontFamily:'var(--fm)',marginTop:'4px'}},
+          E('span',null,'Usado: '+fmt(invoiceTotal)),
+          E('span',null,'Disponível: '+fmt(Math.max(0,selCard.limitAmount-invoiceTotal)))
+        )
+      ),
+
+      /* invoice dates */
+      E('div',{className:'invoice-hero'},
+        E('div',{className:'invoice-dates'},
+          E('div',{className:'invoice-date'},'Fechamento',E('b',null,getClosingDate(selCard))),
+          E('div',{className:'invoice-date'},'Vencimento',E('b',null,getDueDate(selCard))),
+          E('div',{className:'invoice-date'},'Transações',E('b',null,invoiceTxs.length+' lançamentos'))
+        )
+      ),
+
+      /* transactions in invoice */
+      E('div',{className:'sec'},
+        E('div',{className:'sec-hd'},E('span',{className:'sec-title'},'Lançamentos da fatura')),
+        invoiceTxs.length===0
+          ? E('div',{className:'empty'},E('div',{className:'empty-ico'},'🧾'),E('div',{className:'empty-txt'},'Nenhum lançamento nesta fatura'))
+          : invoiceTxs.slice().sort(function(a,b){return new Date(b.date)-new Date(a.date);}).map(function(t){
+              return E('div',{key:t.id,className:'tx'},
+                E('div',{className:'tx-ico exp'},EMOJIS[t.cat]||'💳'),
+                E('div',{className:'tx-info'},
+                  E('div',{className:'tx-desc'},t.desc),
+                  E('div',{className:'tx-cat'},t.cat+' · '+new Date(t.date).toLocaleDateString('pt-BR'))
+                ),
+                E('div',{className:'tx-amt exp'},'\u2212'+fmt(t.amount))
+              );
+            })
+      ),
+
+      /* delete card */
+      conf===selCard.id
+        ? E('div',{style:{margin:'0 20px 20px',background:'var(--red-dim)',border:'1px solid var(--red)',borderRadius:'var(--r)',padding:'14px'}},
+            E('div',{style:{fontSize:'13px',fontWeight:700,color:'var(--red)',marginBottom:'10px'}},'Remover este cartão?'),
+            E('div',{style:{display:'flex',gap:'8px'}},
+              E('button',{className:'sbtn',style:{background:'var(--red)',flex:1,marginTop:0},onClick:function(){delCard(selCard.id);}}, 'Sim, remover'),
+              E('button',{className:'cbtn',style:{flex:1,marginTop:0},onClick:function(){setConf(null);}}, 'Cancelar')
+            )
+          )
+        : E('button',{className:'del-btn',style:{margin:'0 20px 24px'},onClick:function(){setConf(selCard.id);}},'Remover cartão')
+    ),
+
+    addMod&&E(AddCardModal,{
+      onClose:function(){setAddMod(false);},
+      onSave:function(c){setCards(function(cs){return cs.concat([c]);});setSel(c.id);showToast('Cartão adicionado!');}
+    })
+  );
+}
+
 /* ── Groups Tab ── */
 function GroupsTab(props) {
   var session   = props.session;
@@ -2218,7 +2490,7 @@ function MainApp(props) {
   var goalsS  = useLS('fin_goals_'+userId, []); var goals  = goalsS[0]; var setGoalsRaw  = goalsS[1];
   var billsS  = useLS('fin_bills_'+userId, []); var bills  = billsS[0]; var setBillsRaw  = billsS[1];
   var vrS     = useLS('fin_vr_'+userId, {credits:[],spends:[],alertPct:20}); var vr = vrS[0]; var setVrRaw = vrS[1];
-  var cardsS  = useLS('fin_cards', []); var cards  = cardsS[0];
+  var cardsS  = useLS('fin_cards_'+userId, []); var cards  = cardsS[0]; var setCardsRaw = cardsS[1];
   var grpS    = useState([]);           var groups = grpS[0]; var setGroups = grpS[1];
   var ctxS    = useState('personal');   var ctx    = ctxS[0]; var setCtx    = ctxS[1]; /* 'personal' | groupId */
   var grpTxsS = useState({});           var grpTxs = grpTxsS[0]; var setGrpTxs = grpTxsS[1];
@@ -2232,13 +2504,14 @@ function MainApp(props) {
   /* ── load from Supabase on mount ── */
   useEffect(function(){
     setSyncSt('loading');
-    Promise.all([fetchTxs(token,userId), fetchBills(token,userId), fetchGoals(token,userId), fetchVr(token,userId), fetchGroups(token,userId)])
+    Promise.all([fetchTxs(token,userId), fetchBills(token,userId), fetchGoals(token,userId), fetchVr(token,userId), fetchGroups(token,userId), fetchCards(token,userId)])
       .then(function(results){
         setTxsRaw(results[0]);
         setBillsRaw(results[1]);
         setGoalsRaw(results[2]);
         setVrRaw(results[3]);
         setGroups(results[4]);
+        setCardsRaw(results[5]);
         setSyncSt('ok');
       })
       .catch(function(){ setSyncSt('err'); });
@@ -2252,6 +2525,13 @@ function MainApp(props) {
       var personalOnly = next.filter(function(t){ return !t.groupId; });
       debounceSync('txs', function(){ syncTxsUp(token,userId,personalOnly); }, 800);
       return personalOnly; /* never store group txs in personal array */
+    });
+  }
+  function setCards(updater) {
+    setCardsRaw(function(prev){
+      var next = typeof updater==='function'?updater(prev):updater;
+      debounceSync('cards', function(){ syncCardsUp(token,userId,next); }, 800);
+      return next;
     });
   }
   function setBills(updater) {
@@ -2346,6 +2626,7 @@ function MainApp(props) {
 
   var TABS = [
     {id:'home',      icon:'\uD83C\uDFE0', label:'In\u00edcio'},
+    {id:'cards',     icon:'\uD83D\uDCB3', label:'Cart\u00f5es'},
     {id:'dashboard', icon:'\uD83D\uDCCA', label:'Dashboard'},
     {id:'vr',        icon:'\uD83C\uDF74', label:'VR/VA'},
     {id:'goals',     icon:'\uD83C\uDFAF', label:'Metas'},
@@ -2410,6 +2691,7 @@ function MainApp(props) {
     ),
     E('div', {className:'scroll'},
       tab==='home'      && E(HomeTab,      {txs:activeTxs, bills:ctx==='personal'?bills:[], setBills:setBills, setTxs:setActiveTxs, showToast:showToast, isGroup:ctx!=='personal'}),
+      tab==='cards'     && E(CardsTab,     {cards:cards, setCards:setCards, txs:activeTxs, showToast:showToast}),
       tab==='dashboard' && E(DashboardTab, {txs:activeTxs, bills:ctx==='personal'?bills:[], goals:ctx==='personal'?goals:[]}),
       tab==='vr'        && E(VRTab,        {vr:vr, setVr:setVr, showToast:showToast}),
       tab==='goals'     && E(GoalsTab,     {goals:goals, setGoals:setGoals, showToast:showToast}),
