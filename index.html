@@ -2084,7 +2084,6 @@ var BRANDS = [{id:'visa',label:'Visa'},{id:'master',label:'Mastercard'},{id:'elo
 
 function AddCardModal(props) {
   var nameS    = useState('');       var name       = nameS[0];    var setName       = nameS[1];
-  var limitS   = useState('');       var limitAmt   = limitS[0];   var setLimitAmt   = limitS[1];
   var closeDS  = useState('');       var closingDay = closeDS[0];  var setClosingDay = closeDS[1];
   var dueDS    = useState('');       var dueDay     = dueDS[0];    var setDueDay     = dueDS[1];
   var brandS   = useState('visa');   var brand      = brandS[0];   var setBrand      = brandS[1];
@@ -2094,7 +2093,7 @@ function AddCardModal(props) {
     if (!name.trim()||!closingDay||!dueDay) return;
     props.onSave({
       id: Date.now(), name:name.trim(),
-      limitAmount: limitAmt?parseFloat(limitAmt.replace(',','.')):null,
+      limitAmount: null,
       closingDay:+closingDay, dueDay:+dueDay,
       brand:brand, color:color
     });
@@ -2119,16 +2118,10 @@ function AddCardModal(props) {
           })
         )
       ),
-      E('div',{className:'frow'},
-        E('div',{className:'fg'},
-          E('label',{className:'fl'},'Bandeira'),
-          E('select',{className:'fi',value:brand,onChange:function(ev){setBrand(ev.target.value);}},
-            BRANDS.map(function(b){return E('option',{key:b.id,value:b.id},b.label);})
-          )
-        ),
-        E('div',{className:'fg'},
-          E('label',{className:'fl'},'Limite (R$)'),
-          E('input',{className:'fi',type:'number',inputMode:'decimal',placeholder:'Opcional',value:limitAmt,onChange:function(ev){setLimitAmt(ev.target.value);}})
+      E('div',{className:'fg'},
+        E('label',{className:'fl'},'Bandeira'),
+        E('select',{className:'fi',value:brand,onChange:function(ev){setBrand(ev.target.value);}},
+          BRANDS.map(function(b){return E('option',{key:b.id,value:b.id},b.label);})
         )
       ),
       E('div',{className:'frow'},
@@ -2246,20 +2239,7 @@ function CardsTab(props) {
           E('div',{className:'card-visual-limit'},
             'Fatura atual',
             E('b',null,fmt(invoiceTotal))
-          ),
-          selCard.limitAmount&&E('div',{className:'card-visual-limit',style:{textAlign:'right'}},
-            'Limite',
-            E('b',null,fmt(selCard.limitAmount))
           )
-        )
-      ),
-
-      /* limit bar */
-      limitPct!==null&&E('div',{style:{padding:'0 20px 12px'}},
-        E('div',{className:'pbar'},E('div',{className:'pfill '+limitCls,style:{width:limitPct.toFixed(1)+'%'}})),
-        E('div',{style:{display:'flex',justifyContent:'space-between',fontSize:'11px',color:'var(--muted)',fontFamily:'var(--fm)',marginTop:'4px'}},
-          E('span',null,'Usado: '+fmt(invoiceTotal)),
-          E('span',null,'Disponível: '+fmt(Math.max(0,selCard.limitAmount-invoiceTotal)))
         )
       ),
 
