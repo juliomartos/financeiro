@@ -997,7 +997,8 @@ function HomeTab(props) {
   var balCls    = balance>0?'pos':balance<0?'neg':'zer';
 
   function delTx(id) {
-    props.setTxs(function(ts){return ts.filter(function(t){return t.id!==id;});});
+    if (props.onDelTx) props.onDelTx(id);
+    else props.setTxs(function(ts){return ts.filter(function(t){return t.id!==id;});});
     props.showToast('Transa\u00e7\u00e3o removida');
   }
 
@@ -1199,7 +1200,8 @@ function HistoryTab(props) {
   var rows = expandInstallments(base);
 
   function delTx(id) {
-    props.setTxs(function(ts){return ts.filter(function(t){return t.id!==id;});});
+    if (props.onDelTx) props.onDelTx(id);
+    else props.setTxs(function(ts){return ts.filter(function(t){return t.id!==id;});});
     props.showToast('Transa\u00e7\u00e3o removida');
   }
 
@@ -2579,6 +2581,20 @@ function MainApp(props) {
     /* always reload group txs fresh when switching */
     if (newCtx!=='personal') loadGroupTxs(newCtx);
   }
+  function deleteTx(id) {
+    setTxs(function(ts){return ts.filter(function(t){return t.id!==id;});});
+    deleteTxUp(token, id);
+  }
+  function deleteGroupTx(id, groupId) {
+    setActiveTxs(function(ts){return ts.filter(function(t){return t.id!==id;});});
+    supaAuth(token,'/rest/v1/transactions?id=eq.'+id+'&group_id=eq.'+groupId,{
+      method:'DELETE',headers:Object.assign(authHdr(token),{'Accept':'application/json'})
+    });
+  }
+  function handleDelTx(id) {
+    if (ctx==='personal') deleteTx(id);
+    else deleteGroupTx(id, ctx);
+  }
   function showToast(msg) {
     setToast({msg:msg,show:true});
     setTimeout(function(){setToast(function(t){return Object.assign({},t,{show:false});});}, 2200);
@@ -2670,12 +2686,12 @@ function MainApp(props) {
       })
     ),
     E('div', {className:'scroll'},
-      tab==='home'      && E(HomeTab,      {txs:activeTxs, bills:ctx==='personal'?bills:[], setBills:setBills, setTxs:setActiveTxs, showToast:showToast, isGroup:ctx!=='personal'}),
+      tab==='home'      && E(HomeTab,      {txs:activeTxs, bills:ctx==='personal'?bills:[], setBills:setBills, setTxs:setActiveTxs, onDelTx:handleDelTx, showToast:showToast, isGroup:ctx!=='personal'}),
       tab==='cards'     && E(CardsTab,     {cards:cards, setCards:setCards, txs:activeTxs, showToast:showToast}),
       tab==='dashboard' && E(DashboardTab, {txs:activeTxs, bills:ctx==='personal'?bills:[], goals:ctx==='personal'?goals:[]}),
       tab==='vr'        && E(VRTab,        {vr:vr, setVr:setVr, showToast:showToast}),
       tab==='goals'     && E(GoalsTab,     {goals:goals, setGoals:setGoals, showToast:showToast}),
-      tab==='history'   && E(HistoryTab,   {txs:activeTxs, setTxs:setActiveTxs, showToast:showToast,
+      tab==='history'   && E(HistoryTab,   {txs:activeTxs, setTxs:setActiveTxs, onDelTx:handleDelTx, showToast:showToast,
         groupId:ctx!=='personal'?ctx:null, userId:userId, displayName:myDisplayName}),
       tab==='groups'    && E(GroupsTab,    {session:session, groups:groups, setGroups:setGroups, showToast:showToast}),
       showPwa && E(PwaBanner, {onInstall:installPwa, onDismiss:dismissPwa})
