@@ -2710,21 +2710,88 @@ function MainApp(props) {
   );
 }
 
+/* ── Set Password Screen (after invite or recovery link) ── */
+function SetPasswordScreen(props) {
+  var passS  = useState(''); var pass  = passS[0];  var setPass  = passS[1];
+  var pass2S = useState(''); var pass2 = pass2S[0]; var setPass2 = pass2S[1];
+  var errS   = useState(''); var err   = errS[0];   var setErr   = errS[1];
+  var loadS  = useState(false); var load = loadS[0]; var setLoad = loadS[1];
+  var doneS  = useState(false); var done = doneS[0]; var setDone = doneS[1];
+
+  function submit() {
+    if (pass.length < 6) { setErr('Senha deve ter pelo menos 6 caracteres.'); return; }
+    if (pass !== pass2)  { setErr('As senhas não coincidem.'); return; }
+    setLoad(true); setErr('');
+    fetch(SUPA_URL+'/auth/v1/user', {
+      method:'PUT',
+      headers:{'apikey':SUPA_KEY,'Authorization':'Bearer '+props.token,'Content-Type':'application/json'},
+      body:JSON.stringify({password:pass})
+    }).then(function(r){return r.json();}).then(function(data){
+      setLoad(false);
+      if (data.error) { setErr(data.error||data.message||'Erro ao definir senha.'); return; }
+      setDone(true);
+      setTimeout(function(){ props.onDone(); }, 2000);
+    }).catch(function(){ setLoad(false); setErr('Erro de conexão.'); });
+  }
+
+  if (done) return E('div',{className:'login-wrap'},
+    E('div',{className:'pin-logo'},'✅'),
+    E('div',{className:'login-title'},'Senha definida!'),
+    E('div',{className:'login-sub'},'Redirecionando para o login...')
+  );
+
+  return E('div',{className:'login-wrap'},
+    E('div',{className:'pin-logo'},'🔐'),
+    E('div',{className:'login-title'},'Criar senha'),
+    E('div',{className:'login-sub'},props.type==='recovery'?'Digite sua nova senha':'Bem-vindo! Crie uma senha para acessar o app.'),
+    E('div',{className:'login-form'},
+      err && E('div',{className:'login-err'},err),
+      E('div',{className:'fg'},
+        E('label',{className:'fl'},'Nova senha'),
+        E('input',{className:'fi',type:'password',placeholder:'Mínimo 6 caracteres',value:pass,onChange:function(ev){setPass(ev.target.value);}})
+      ),
+      E('div',{className:'fg'},
+        E('label',{className:'fl'},'Confirmar senha'),
+        E('input',{className:'fi',type:'password',placeholder:'Repita a senha',value:pass2,onChange:function(ev){setPass2(ev.target.value);}})
+      ),
+      E('button',{className:'sbtn',onClick:submit,disabled:load},load?'Salvando...':'Salvar senha')
+    )
+  );
+}
+
 /* ── Root ── */
 function App() {
   var sessS = useState(function(){ return getSession(); });
   var session = sessS[0]; var setSession = sessS[1];
 
+  /* detect invite/recovery tokens in URL hash */
+  var hashS = useState(function(){
+    var hash = window.location.hash.slice(1);
+    var params = {};
+    hash.split('&').forEach(function(p){var kv=p.split('=');if(kv[0])params[kv[0]]=decodeURIComponent(kv[1]||'');});
+    return params;
+  });
+  var hashParams = hashS[0];
+  var inviteToken = (hashParams.type==='invite'||hashParams.type==='recovery') ? hashParams.access_token : null;
+
   function handleLogin(s) { setSession(s); }
   function handleLogout() { setSession(null); }
+  function handlePasswordSet() {
+    /* clear hash from URL and go to login */
+    window.history.replaceState(null,'',window.location.pathname);
+    setSession(null);
+  }
 
-  /* auto-refresh token: check every 5 min, refresh if expires in <10 min */
+  /* show set-password screen if invite/recovery link */
+  if (inviteToken) return E(SetPasswordScreen, {token:inviteToken, type:hashParams.type, onDone:handlePasswordSet});
+
+  /* auto-refresh token every 5 min */
   useEffect(function(){
     if (!session||!session.token) return;
     function tryRefresh() {
       if (!session.refreshToken) return;
       var expiresIn = session.expiresAt - Date.now();
-      if (expiresIn < 10*60*1000) { /* less than 10 min left */
+      if (expiresIn < 10*60*1000) {
         refreshToken(session.refreshToken).then(function(data){
           if (data.access_token) {
             var updated = Object.assign({},session,{
@@ -2735,7 +2802,6 @@ function App() {
             saveSession(updated);
             setSession(updated);
           } else {
-            /* refresh failed, force re-login */
             clearSession(); setSession(null);
           }
         }).catch(function(){});
