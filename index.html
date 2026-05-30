@@ -1081,12 +1081,14 @@ function TxRow(props) {
   var t = props.tx;
   var cls = t.type === 'income' ? 'inc' : 'exp';
   var inst = t.installment;
+  var dateStr = new Date(t.date).toLocaleDateString('pt-BR',{day:'2-digit',month:'2-digit',year:'2-digit'});
   return E('div', {className:'tx', style:{paddingRight: props.onDel ? '60px' : '14px'}},
     E('div', {className:'tx-ico '+cls}, EMOJIS[t.cat]||'\uD83D\uDCB8'),
     E('div', {className:'tx-info'},
       E('div', {className:'tx-desc'}, t.desc),
       E('div',{style:{display:'flex',alignItems:'center',gap:'6px',flexWrap:'wrap',marginTop:'3px'}},
         E('span',{className:'tx-cat',style:{marginTop:0}}, t.cat),
+        E('span',{style:{fontSize:'10px',color:'var(--dim)'}}, dateStr),
         inst && E('span',{className:'inst-tag'}, inst.paid+'/'+inst.total+' parcelas'),
         t.launchedByName && E('span',{className:'by-badge'}, t.launchedByName)
       )
