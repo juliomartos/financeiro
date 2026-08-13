@@ -1764,7 +1764,7 @@ function DashboardTab(props) {
         E('div',{className:'wnav'},
           E('button',{className:'wbtn',onClick:function(){setOffset(function(o){return o-1;});}},'‹'),
           E('span',{className:'wlabel'},mb.label),
-          E('button',{className:'wbtn',disabled:offset>=0,onClick:function(){setOffset(function(o){return Math.min(0,o+1);});}},'›')
+          E('button',{className:'wbtn',onClick:function(){setOffset(function(o){return o+1;});}},'›')
         )
       )
     ),
